@@ -1,0 +1,18 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "csa-tennis",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": true,
+  "assets": { "directory": "./public" },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "csa-tennis",
+      "database_id": "6d25eb7e-3b41-49a1-b07f-17e10eb9db20"
+    }
+  ],
+  // ADMIN_EMAIL is set in the dashboard (Settings > Variables & Secrets), not in git.
+  "keep_vars": true,
+  "observability": { "enabled": true }
+}

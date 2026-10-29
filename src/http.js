@@ -1,0 +1,75 @@
+// HTML escaping, responses, security headers and request guards.
+
+class Raw {
+  constructor(s) { this.s = s; }
+  toString() { return this.s; }
+}
+
+const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+export const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ESC[c]);
+
+function render(v) {
+  if (v instanceof Raw) return v.s;
+  if (Array.isArray(v)) return v.map(render).join('');
+  if (v === null || v === undefined || v === false) return '';
+  return esc(v);
+}
+
+// Tagged template: every interpolated value is escaped unless it is itself html``.
+export function html(strings, ...values) {
+  let out = strings[0];
+  for (let i = 0; i < values.length; i++) out += render(values[i]) + strings[i + 1];
+  return new Raw(out);
+}
+
+const SECURITY_HEADERS = {
+  'Content-Security-Policy':
+    "default-src 'none'; style-src 'self'; img-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+  'Strict-Transport-Security': 'max-age=63072000; includeSubDomains',
+  'X-Frame-Options': 'DENY',
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+  'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+  'Cache-Control': 'no-store',
+};
+
+function respond(body, status, type, extra = {}) {
+  return new Response(body, {
+    status,
+    headers: { ...SECURITY_HEADERS, 'Content-Type': type, ...extra },
+  });
+}
+
+export const htmlResponse = (page, status = 200, extra) =>
+  respond(String(page), status, 'text/html; charset=utf-8', extra);
+
+export const jsonResponse = (data, status = 200) =>
+  respond(JSON.stringify(data), status, 'application/json; charset=utf-8');
+
+export const redirect = (location, extra = {}) =>
+  respond(null, 303, 'text/plain', { Location: location, ...extra });
+
+// Only same-site relative paths; blocks //evil.com and /\evil.com.
+export function safePath(p) {
+  if (typeof p !== 'string' || !p.startsWith('/') || p.startsWith('//') || p.startsWith('/\\')) return '/';
+  if (/[\u0000-\u001f\u007f]/.test(p)) return '/';
+  return p;
+}
+
+// Cross-site request forgery guard for every state-changing request.
+export function sameOrigin(request) {
+  const origin = request.headers.get('Origin');
+  const site = request.headers.get('Sec-Fetch-Site');
+  if (site && site !== 'same-origin') return false;
+  return origin === new URL(request.url).origin;
+}
+
+const MAX_FORM_BYTES = 16 * 1024;
+
+export async function readForm(request) {
+  const type = request.headers.get('Content-Type') || '';
+  if (!type.startsWith('application/x-www-form-urlencoded')) return null;
+  const text = await request.text();
+  if (text.length > MAX_FORM_BYTES) return null;
+  return new URLSearchParams(text);
+}
