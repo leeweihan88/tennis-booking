@@ -1,4 +1,4 @@
-/* CSA Tennis. Renaming this file (app-v6.css) is the cache-bust: it is cached for a year. */
+/* CSA Tennis. Renaming this file (app-v7.css) is the cache-bust: it is cached for a year. */
 :root {
   --bg: #f6f7f4; --card: #fff; --text: #1d2420; --muted: #5f6b64; --line: #dde2dc;
   --control: #7d8a83; /* ≥3:1 against bg and card, for input and radio outlines */
@@ -164,3 +164,11 @@ body.cropping { overflow: hidden; }
 .crop-actions { display: flex; justify-content: space-between; align-items: center; width: min(88vw, 420px); }
 .crop-actions button { min-height: 48px; min-width: 120px; font-size: 1.05rem; }
 .crop-actions .crop-cancel { color: #fff; }
+
+/* History */
+.delta { font-size: .8rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.delta.up { color: var(--brand); }
+.delta.down { color: var(--danger); }
+.pager { display: flex; justify-content: space-between; margin: 8px 0 24px; }
+.pager a { font-weight: 600; padding: 10px 0; }
+ul.plain li:last-child { border-bottom: 0; }
