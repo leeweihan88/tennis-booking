@@ -2,8 +2,12 @@
 import { CSP_WITH_SCRIPT, htmlResponse, imageResponse, jsonResponse, redirect, safePath, sameOrigin, readForm } from './http.js';
 import { avatarPath, MAX_UPLOAD_BYTES, resizePhoto, UPLOADS_PER_DAY } from './avatar.js';
 import { checkLogin, createSession, currentUser, destroySession, hashPassword, randomPassword, revokeAll, verifyPassword } from './auth.js';
-import { currentEvent, eventStatus, manilaDate, MAX_GUESTS, PLAYERS_PER_COURT } from './schedule.js';
+import {
+  DEFAULT_SCHEDULE, eventStatus, manilaDate, MAX_GUESTS, nextSessionDate, offsets, parseTime, PLAYERS_PER_COURT,
+  timing, validSchedule, weekdayOf,
+} from './schedule.js';
 import { QUESTIONS, ratingDeltas, startingRating } from './rating.js';
+import { ratingSeries } from './chart.js';
 import * as view from './views.js';
 
 const DAY = 24 * 3600_000;
@@ -34,13 +38,37 @@ const isConstraintError = (e) => String(e && e.message).includes('UNIQUE constra
 
 // ---------- data ----------
 
-async function loadEventView(db, now) {
-  const ev = currentEvent(now);
+async function loadSchedule(db) {
+  const row = await db.prepare("SELECT value FROM settings WHERE key = 'schedule'").first();
+  try {
+    const s = row && JSON.parse(row.value);
+    return validSchedule(s) ? s : DEFAULT_SCHEDULE;
+  } catch {
+    return DEFAULT_SCHEDULE;
+  }
+}
+
+// The current session: the earliest one from today on. If none exists yet, the next one on the
+// weekly schedule is created with a snapshot of the schedule's times, so later schedule changes
+// never move a session people have already registered for.
+async function currentEventRow(db, now) {
+  const today = manilaDate(now);
+  const existing = await db.prepare('SELECT * FROM events WHERE date >= ? ORDER BY date LIMIT 1').bind(today).first();
+  if (existing) return existing;
+  const s = await loadSchedule(db);
+  const o = offsets(s);
+  const date = nextSessionDate(now, s.day);
   const [, sel] = await db.batch([
-    db.prepare('INSERT OR IGNORE INTO events (date) VALUES (?)').bind(ev.date),
-    db.prepare('SELECT * FROM events WHERE date = ?').bind(ev.date),
+    db.prepare('INSERT OR IGNORE INTO events (date, start_min, end_min, opens_offset, closes_offset) VALUES (?, ?, ?, ?, ?)')
+      .bind(date, s.start, s.end, o.opens, o.closes),
+    db.prepare('SELECT * FROM events WHERE date = ?').bind(date),
   ]);
-  const event = sel.results[0];
+  return sel.results[0];
+}
+
+async function loadEventView(db, now) {
+  const event = await currentEventRow(db, now);
+  const ev = timing(event);
   const { results: regs } = await db.prepare(
     `SELECT r.id, r.user_id, r.guest_name, r.paid, u.name, u.rating, a.updated_at AS avatar_v
      FROM registrations r JOIN users u ON u.id = r.user_id
@@ -65,7 +93,7 @@ function removeRegistration(db, reg) {
 
 async function home(c) {
   const d = await loadEventView(c.db, c.now);
-  return c.page('Monday Tennis @ CSA', view.homePage({ ...d, user: c.user }));
+  return c.page(`${weekdayOf(d.event.date)} Tennis @ CSA`, view.homePage({ ...d, user: c.user, now: c.now }));
 }
 
 function loginPage(c) {
@@ -185,60 +213,109 @@ async function matchesPage(c) {
   }));
 }
 
+// ---------- player profile ----------
+
+async function playerPage(c) {
+  const id = int(c.url.searchParams, 'id', 1, Number.MAX_SAFE_INTEGER);
+  if (!id) return c.page('Not found', view.errorPage(404, 'Player not found.'), 404);
+  const today = (await currentEventRow(c.db, c.now)).date;
+  const mine = "status = 'confirmed' AND ?1 IN (p1, p2, p3, p4)";
+  const [player, history, matches, deltas, users, attended] = await c.db.batch([
+    c.db.prepare(
+      `SELECT u.id, u.name, u.rating, u.rated_matches, u.created_at, a.updated_at AS avatar_v
+       FROM users u LEFT JOIN avatars a ON a.user_id = u.id WHERE u.id = ?1`,
+    ).bind(id),
+    c.db.prepare(
+      `SELECT h.delta FROM rating_history h JOIN matches m ON m.id = h.match_id
+       WHERE h.user_id = ?1 ORDER BY m.played_on, m.id`,
+    ).bind(id),
+    c.db.prepare(`SELECT * FROM matches WHERE ${mine} ORDER BY played_on DESC, id DESC`).bind(id),
+    c.db.prepare(`SELECT match_id, user_id, delta FROM rating_history WHERE match_id IN (SELECT id FROM matches WHERE ${mine})`).bind(id),
+    c.db.prepare('SELECT u.id, u.name, a.updated_at AS avatar_v FROM users u LEFT JOIN avatars a ON a.user_id = u.id'),
+    // Sessions where the player had a confirmed spot (not waitlisted), before the current one, not cancelled.
+    c.db.prepare(
+      `SELECT COUNT(*) AS n FROM (
+         SELECT r.user_id, r.guest_name, e.courts, e.cancelled, e.date,
+                ROW_NUMBER() OVER (PARTITION BY r.event_id ORDER BY r.id) AS pos
+         FROM registrations r JOIN events e ON e.id = r.event_id
+       ) WHERE user_id = ?1 AND guest_name IS NULL AND pos <= courts * ${PLAYERS_PER_COURT} AND cancelled = 0 AND date < ?2`,
+    ).bind(id, today),
+  ]);
+  const p = player.results[0];
+  if (!p) return c.page('Not found', view.errorPage(404, 'Player not found.'), 404);
+
+  const record = { singles: [0, 0], doubles: [0, 0] };
+  for (const m of matches.results) {
+    const won = m.winner === 1 ? m.p1 === id || m.p2 === id : m.p3 === id || m.p4 === id;
+    record[m.p2 === null ? 'singles' : 'doubles'][won ? 0 : 1] += 1;
+  }
+  const deltaOf = {};
+  for (const d of deltas.results) deltaOf[`${d.match_id}:${d.user_id}`] = d.delta;
+  return c.page(p.name, view.playerPage({
+    player: p,
+    series: ratingSeries(p.rating, history.results.map((h) => h.delta)),
+    record,
+    attended: attended.results[0].n,
+    recent: matches.results.slice(0, 10),
+    people: Object.fromEntries(users.results.map((u) => [u.id, u])),
+    deltaOf,
+    memberSince: manilaDate(p.created_at),
+  }));
+}
+
 // ---------- history ----------
 
 const HISTORY_PAGE = 10;
-// The Monday on or before a 'YYYY-MM-DD' date, in SQL. Matches belong to the week (Mon–Sun) they were played.
-const MONDAY_OF = "date(played_on, '-6 days', 'weekday 1')";
+// The Monday starting the calendar week (Mon–Sun) of a 'YYYY-MM-DD' column, in SQL (same as weekOf()).
+const WEEK_OF = (col) => `date(${col}, '-6 days', 'weekday 1')`;
 
 async function history(c) {
   const page = int(c.url.searchParams, 'page', 1, 10_000) || 1;
-  const current = currentEvent(c.now).date;
-  // Past weeks: every earlier session, plus any week that only has confirmed matches.
+  // Everything before the current session: earlier sessions, and matches played before its date.
+  const cutoff = (await currentEventRow(c.db, c.now)).date;
   const { results: weeks } = await c.db.prepare(
-    `SELECT date AS monday FROM events WHERE date < ?1
-     UNION SELECT ${MONDAY_OF} FROM matches WHERE status = 'confirmed' AND ${MONDAY_OF} < ?1
+    `SELECT ${WEEK_OF('date')} AS monday FROM events WHERE date < ?1
+     UNION SELECT ${WEEK_OF('played_on')} FROM matches WHERE status = 'confirmed' AND played_on < ?1
      ORDER BY monday DESC LIMIT ?2 OFFSET ?3`,
-  ).bind(current, HISTORY_PAGE + 1, (page - 1) * HISTORY_PAGE).all();
+  ).bind(cutoff, HISTORY_PAGE + 1, (page - 1) * HISTORY_PAGE).all();
   const hasOlder = weeks.length > HISTORY_PAGE;
   const mondays = weeks.slice(0, HISTORY_PAGE).map((w) => w.monday);
   if (!mondays.length) return c.page('History', view.historyPage({ weeks: [], page, hasOlder: false, admin: c.admin, user: c.user }));
 
   const list = mondays.map(() => '?').join(',');
   const [events, regs, matches, deltas, users] = await c.db.batch([
-    c.db.prepare(`SELECT * FROM events WHERE date IN (${list})`).bind(...mondays),
+    c.db.prepare(`SELECT *, ${WEEK_OF('date')} AS monday FROM events WHERE date < ? AND ${WEEK_OF('date')} IN (${list}) ORDER BY date`)
+      .bind(cutoff, ...mondays),
     c.db.prepare(
       `SELECT r.id, r.event_id, r.user_id, r.guest_name, r.paid, u.name, u.rating, a.updated_at AS avatar_v
        FROM registrations r JOIN events e ON e.id = r.event_id JOIN users u ON u.id = r.user_id
        LEFT JOIN avatars a ON a.user_id = r.user_id
-       WHERE e.date IN (${list}) ORDER BY r.id`,
-    ).bind(...mondays),
+       WHERE e.date < ? AND ${WEEK_OF('e.date')} IN (${list}) ORDER BY r.id`,
+    ).bind(cutoff, ...mondays),
     c.db.prepare(
-      `SELECT *, ${MONDAY_OF} AS monday FROM matches
-       WHERE status = 'confirmed' AND ${MONDAY_OF} IN (${list}) ORDER BY played_on DESC, id DESC`,
-    ).bind(...mondays),
+      `SELECT *, ${WEEK_OF('played_on')} AS monday FROM matches
+       WHERE status = 'confirmed' AND played_on < ? AND ${WEEK_OF('played_on')} IN (${list}) ORDER BY played_on DESC, id DESC`,
+    ).bind(cutoff, ...mondays),
     c.db.prepare(
       `SELECT match_id, user_id, delta FROM rating_history
-       WHERE match_id IN (SELECT id FROM matches WHERE status = 'confirmed' AND ${MONDAY_OF} IN (${list}))`,
-    ).bind(...mondays),
+       WHERE match_id IN (SELECT id FROM matches WHERE status = 'confirmed' AND played_on < ? AND ${WEEK_OF('played_on')} IN (${list}))`,
+    ).bind(cutoff, ...mondays),
     c.db.prepare('SELECT u.id, u.name, a.updated_at AS avatar_v FROM users u LEFT JOIN avatars a ON a.user_id = u.id'),
   ]);
 
-  const byDate = Object.fromEntries(events.results.map((e) => [e.date, e]));
   const people = Object.fromEntries(users.results.map((u) => [u.id, u]));
   const deltaOf = {};
   for (const d of deltas.results) deltaOf[`${d.match_id}:${d.user_id}`] = d.delta;
-  const data = mondays.map((monday) => {
-    const event = byDate[monday] || null;
-    const rows = event ? regs.results.filter((r) => r.event_id === event.id) : [];
-    const cap = event ? event.courts * PLAYERS_PER_COURT : 0;
-    return {
-      monday, event,
-      played: rows.slice(0, cap),
-      waitlisted: Math.max(0, rows.length - cap),
-      matches: matches.results.filter((m) => m.monday === monday),
-    };
-  });
+  const data = mondays.map((monday) => ({
+    monday,
+    // Normally one session a week; two only if the weekday changed that week.
+    sessions: events.results.filter((e) => e.monday === monday).map((event) => {
+      const rows = regs.results.filter((r) => r.event_id === event.id);
+      const cap = event.courts * PLAYERS_PER_COURT;
+      return { event, played: rows.slice(0, cap), waitlisted: Math.max(0, rows.length - cap) };
+    }),
+    matches: matches.results.filter((m) => m.monday === monday),
+  }));
   return c.page('History', view.historyPage({ weeks: data, people, deltaOf, page, hasOlder, admin: c.admin, user: c.user }));
 }
 
@@ -383,34 +460,72 @@ async function changePassword(c) {
 // ---------- pages: admin ----------
 
 async function adminPage(c, tempPassword) {
-  const d = await loadEventView(c.db, c.now);
+  const [d, schedule] = await Promise.all([loadEventView(c.db, c.now), loadSchedule(c.db)]);
   const { results: users } = await c.db.prepare(
-    `SELECT u.id, u.name, u.email, u.rating, a.updated_at AS avatar_v
+    `SELECT u.id, u.name, u.email, u.rating, u.is_admin, a.updated_at AS avatar_v
      FROM users u LEFT JOIN avatars a ON a.user_id = u.id ORDER BY u.name`,
   ).all();
-  return c.page('Admin', view.adminPage({ ...d, users, tempPassword }));
+  return c.page('Admin', view.adminPage({ ...d, users, tempPassword, schedule, ownerEmail: c.ownerEmail, isOwner: c.owner }));
 }
 
+// This session only: courts, cost and (one-off) start/end time. Registration must close by the start.
 async function adminEvent(c) {
-  const ev = currentEvent(c.now);
+  const event = await currentEventRow(c.db, c.now);
   const courts = int(c.form, 'courts', 1, 6);
   const costRaw = (c.form.get('cost') || '').trim();
   const cost = costRaw === '' ? null : Number(costRaw);
-  if (c.form.get('date') !== ev.date || !courts
+  const start = parseTime(c.form.get('start'));
+  const end = parseTime(c.form.get('end'));
+  if (c.form.get('date') !== event.date || !courts
     || (cost !== null && !(Number.isFinite(cost) && cost >= 0 && cost <= 1_000_000))) {
     return redirect('/admin?m=bad_input');
   }
-  await c.db.prepare('UPDATE events SET courts = ?, cost_cents = ? WHERE date = ?')
-    .bind(courts, cost === null ? null : Math.round(cost * 100), ev.date).run();
+  if (start === null || end === null || start >= end || event.closes_offset > start) return redirect('/admin?m=bad_time');
+  await c.db.prepare('UPDATE events SET courts = ?, cost_cents = ?, start_min = ?, end_min = ? WHERE id = ?')
+    .bind(courts, cost === null ? null : Math.round(cost * 100), start, end, event.id).run();
   return redirect('/admin?m=saved');
 }
 
 async function adminCancel(c) {
-  const ev = currentEvent(c.now);
+  const event = await currentEventRow(c.db, c.now);
   const cancelled = int(c.form, 'cancelled', 0, 1);
-  if (c.form.get('date') !== ev.date || cancelled === null) return redirect('/admin?m=bad_input');
-  await c.db.prepare('UPDATE events SET cancelled = ? WHERE date = ?').bind(cancelled, ev.date).run();
+  if (c.form.get('date') !== event.date || cancelled === null) return redirect('/admin?m=bad_input');
+  await c.db.prepare('UPDATE events SET cancelled = ? WHERE id = ?').bind(cancelled, event.id).run();
   return redirect(cancelled ? '/admin?m=session_cancelled' : '/admin?m=session_restored');
+}
+
+// Weekly default. Applies to sessions created from now on; existing sessions keep their times.
+async function adminSchedule(c) {
+  const s = {
+    day: int(c.form, 'day', 0, 6),
+    start: parseTime(c.form.get('start')),
+    end: parseTime(c.form.get('end')),
+    opensDay: int(c.form, 'opens_day', 0, 6),
+    opensTime: parseTime(c.form.get('opens_time')),
+    closesDay: int(c.form, 'closes_day', 0, 6),
+    closesTime: parseTime(c.form.get('closes_time')),
+  };
+  if (!validSchedule(s)) return redirect('/admin?m=bad_schedule');
+  await c.db.prepare("INSERT INTO settings (key, value) VALUES ('schedule', ?1) ON CONFLICT (key) DO UPDATE SET value = ?1")
+    .bind(JSON.stringify(s)).run();
+  return redirect('/admin?m=schedule_saved');
+}
+
+// Any admin can promote or demote members; the owner (ADMIN_EMAIL) is always admin.
+async function adminRole(c) {
+  const id = int(c.form, 'id', 1, Number.MAX_SAFE_INTEGER);
+  const makeAdmin = int(c.form, 'admin', 0, 1);
+  if (!id || makeAdmin === null) return redirect('/admin?m=bad_input');
+  const { meta } = await c.db.prepare('UPDATE users SET is_admin = ? WHERE id = ? AND email != ?')
+    .bind(makeAdmin, id, c.ownerEmail).run();
+  return redirect(meta.changes ? '/admin?m=role_saved' : '/admin?m=owner_protected');
+}
+
+// Only the owner may act on the owner's account (a password reset would hand over the account).
+async function protectsOwner(c, id) {
+  if (c.owner) return false;
+  const target = await c.db.prepare('SELECT email FROM users WHERE id = ?').bind(id).first();
+  return Boolean(target && target.email === c.ownerEmail);
 }
 
 // Players mark their own spots and their guests' as paid (or undo); the admin can mark anyone's.
@@ -444,6 +559,7 @@ async function adminRemove(c) {
 async function adminRemovePhoto(c) {
   const id = int(c.form, 'id', 1, Number.MAX_SAFE_INTEGER);
   if (!id) return redirect('/admin?m=bad_input');
+  if (await protectsOwner(c, id)) return redirect('/admin?m=owner_protected');
   await c.db.prepare('DELETE FROM avatars WHERE user_id = ?').bind(id).run();
   return redirect('/admin?m=photo_removed');
 }
@@ -452,6 +568,7 @@ async function adminResetPassword(c) {
   const id = int(c.form, 'id', 1, Number.MAX_SAFE_INTEGER);
   const user = id && await c.db.prepare('SELECT id, name FROM users WHERE id = ?').bind(id).first();
   if (!user) return redirect('/admin?m=not_found');
+  if (await protectsOwner(c, id)) return redirect('/admin?m=owner_protected');
   const temp = randomPassword();
   const { hash, salt } = await hashPassword(temp);
   await c.db.batch([
@@ -512,6 +629,7 @@ const ROUTES = {
   'POST /withdraw': [withdraw, USER],
   'POST /paid': [markPaid, USER],
   'GET /players': [players, USER],
+  'GET /player': [playerPage, USER],
   'GET /matches': [matchesPage, USER],
   'GET /history': [history, USER],
   'POST /matches': [recordMatch, USER],
@@ -526,6 +644,8 @@ const ROUTES = {
   'GET /admin': [(c) => adminPage(c), ADMIN],
   'POST /admin/event': [adminEvent, ADMIN],
   'POST /admin/cancel': [adminCancel, ADMIN],
+  'POST /admin/schedule': [adminSchedule, ADMIN],
+  'POST /admin/role': [adminRole, ADMIN],
   'POST /admin/paid': [adminPaid, ADMIN],
   'POST /admin/remove': [adminRemove, ADMIN],
   'POST /admin/reset-password': [adminResetPassword, ADMIN],
@@ -546,7 +666,9 @@ export default {
 
     const user = await currentUser(db, request, now);
     const adminEmail = (env.ADMIN_EMAIL || '').trim().toLowerCase();
-    const admin = Boolean(user && adminEmail && user.email === adminEmail);
+    // The ADMIN_EMAIL account is the owner; members promoted on the Admin page are admins too.
+    const owner = Boolean(user && adminEmail && user.email === adminEmail);
+    const admin = owner || Boolean(user && user.is_admin);
     // A page that names a script gets the one CSP that allows our own scripts.
     const page = (title, body, status = 200, script = null) =>
       htmlResponse(view.layout({ title, user, admin, flash: url.searchParams.get('m'), path: url.pathname, script }, body), status,
@@ -569,7 +691,7 @@ export default {
     }
 
     try {
-      return await handler({ request, env, db, url, now, user, admin, form, page });
+      return await handler({ request, env, db, url, now, user, admin, owner, ownerEmail: adminEmail, form, page });
     } catch (e) {
       console.error(e);
       return fail(500, 'Something went wrong. Please try again.');

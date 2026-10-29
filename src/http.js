@@ -22,10 +22,10 @@ export function html(strings, ...values) {
   return new Raw(out);
 }
 
-const CSP = "default-src 'none'; style-src 'self'; img-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'";
+const CSP = "default-src 'none'; style-src 'self'; img-src 'self'; manifest-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'";
 // The only page with a script (the photo cropper): our own file, plus blob: to preview the chosen photo.
 export const CSP_WITH_SCRIPT =
-  "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob:; form-action 'self'; frame-ancestors 'none'; base-uri 'none'";
+  "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob:; manifest-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'";
 
 const SECURITY_HEADERS = {
   'Content-Security-Policy': CSP,

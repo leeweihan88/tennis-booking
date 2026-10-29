@@ -1,7 +1,8 @@
 // Server-rendered pages. Every value passes through html`` and is escaped.
 import { html } from './http.js';
-import { formatDate, formatManila, MAX_GUESTS } from './schedule.js';
+import { formatDate, formatManila, formatTime, MAX_GUESTS, timeUntil, timeValue, WEEKDAYS, weekdayOf } from './schedule.js';
 import { QUESTIONS } from './rating.js';
+import { chartPoints } from './chart.js';
 import { avatarPath, colourIndex, initials, MAX_UPLOAD_BYTES } from './avatar.js';
 
 // Flash messages are looked up by key so no user input is ever reflected.
@@ -29,6 +30,11 @@ const MESSAGES = {
   saved: ['ok', 'Saved.'],
   not_found: ['error', 'That item no longer exists.'],
   payment_saved: ['ok', 'Payment status updated.'],
+  bad_time: ['error', 'Check the times: the session must end after it starts, and start no earlier than registration closes.'],
+  bad_schedule: ['error', 'Check the schedule: the session must end after it starts, and registration must open before it closes and close no later than the start.'],
+  schedule_saved: ['ok', 'Weekly schedule saved. It applies from the next new session.'],
+  role_saved: ['ok', 'Admin access updated.'],
+  owner_protected: ['error', "Only the owner can change the owner's account."],
   photo_saved: ['ok', 'Profile picture updated.'],
   photo_removed: ['ok', 'Profile picture removed; initials are shown instead.'],
   photo_too_big: ['error', `That photo is over ${MAX_UPLOAD_BYTES / 1024 / 1024} MB. Please choose a smaller one.`],
@@ -52,8 +58,10 @@ export const avatar = (name, id, version, size = 'sm') => {
     ? html`<img class="avatar ${size}" src="${src}" alt="" width="${px}" height="${px}" loading="lazy" decoding="async">`
     : html`<span class="avatar ${size} c${colourIndex(name)}" aria-hidden="true">${initials(name)}</span>`;
 };
+// Members' names link to their profile; guests have no profile.
+const profileLink = (name, id) => (id ? html`<a class="name" href="/player?id=${id}">${name}</a>` : name);
 const person = (name, id, version, extra = '') =>
-  html`<span class="person">${avatar(name, id, version)}<span>${name}${extra}</span></span>`;
+  html`<span class="person">${avatar(name, id, version)}<span>${profileLink(name, id)}${extra}</span></span>`;
 
 // Destructive actions need a second click: the summary reveals the real button.
 const confirmAction = (label, action, fields, confirmLabel) => html`
@@ -76,14 +84,19 @@ export function layout({ title, user, admin, flash, path, script }, body) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${title} · CSA Tennis</title>
-<link rel="stylesheet" href="/app-v6.css">
+<link rel="stylesheet" href="/app-v7.css">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="theme-color" content="#1f5e3a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="CSA Tennis">
 ${script ? html`<script type="module" src="${script}"></script>` : ''}
 </head>
 <body>
 <header>
   <nav>
-    <a class="brand" href="/" ${path === '/' ? html`aria-current="page"` : ''}>CSA Tennis</a>
+    <a class="brand" href="/" ${path === '/' ? html`aria-current="page"` : ''}><img src="/logo-v1.svg" alt="" width="28" height="28">CSA Tennis</a>
     ${user ? html`
       ${link('/players', 'Players')}
       ${link('/matches', 'Matches')}
@@ -127,7 +140,10 @@ const payToggle = (r, back, label = "I've paid") => html`${payTag(r)}
   </form>`;
 
 export function homePage(d) {
-  const { ev, event, status, user, confirmed, waitlist, cap, share } = d;
+  const { ev, event, status, user, confirmed, waitlist, cap, share, now } = d;
+  // Countdown to the next registration milestone, worked out when the page is served.
+  const countdown = status === 'upcoming' ? timeUntil(ev.opensAt, now) && `Opens in ${timeUntil(ev.opensAt, now)}`
+    : status === 'open' ? timeUntil(ev.closesAt, now) && `Closes in ${timeUntil(ev.closesAt, now)}` : null;
   const all = [...confirmed, ...waitlist];
   const mine = user ? all.filter((r) => r.user_id === user.id) : [];
   const self = mine.find((r) => !r.guest_name);
@@ -178,10 +194,13 @@ export function homePage(d) {
 
   return html`
 <section class="card">
-  <h1>Monday Tennis @ CSA</h1>
-  <p class="big">${formatManila(ev.startsAt)} – 9:30 PM</p>
-  <p>${event.courts} courts · ${confirmed.length}/${cap} spots taken${waitlist.length ? html` · ${waitlist.length} on waitlist` : ''}</p>
-  <p class="status ${status}">${STATUS_TEXT[status](ev)}</p>
+  <h1>${weekdayOf(event.date)} Tennis @ CSA</h1>
+  <p class="big">${formatManila(ev.startsAt)} – ${formatTime(event.end_min)}</p>
+  <div class="spots">
+    <progress class="${confirmed.length >= cap ? 'full' : ''}" max="${cap}" value="${confirmed.length}" aria-label="Spots taken">${confirmed.length} of ${cap}</progress>
+    <p><strong>${confirmed.length} of ${cap}</strong> spots taken · ${event.courts} courts${waitlist.length ? html` · <strong>${waitlist.length}</strong> on waitlist` : ''}</p>
+  </div>
+  <p class="status ${status}">${STATUS_TEXT[status](ev)}${countdown ? html` <span class="countdown">${countdown}</span>` : ''}</p>
   ${share ? html`<p>Court cost ${peso(event.cost_cents)} ÷ ${confirmed.length} players = <strong>${peso(share)}</strong> each.</p>` : ''}
 </section>
 
@@ -239,7 +258,7 @@ export function registerPage() {
 const fmtDelta = (d) => (d >= 0 ? '+' : '−') + Math.abs(d).toFixed(2);
 
 function historyMatch(m, people, deltaOf) {
-  const nameOf = (id) => (people[id] ? people[id].name : 'Former member');
+  const nameOf = (id) => (people[id] ? profileLink(people[id].name, id) : 'Former member');
   const side = (ids) => ids.filter(Boolean).map((id, i) => {
     const d = deltaOf[`${m.id}:${id}`];
     return html`${i ? ' & ' : ''}${nameOf(id)}${d === undefined ? '' : html` <span class="delta ${d >= 0 ? 'up' : 'down'}">${fmtDelta(d)}</span>`}`;
@@ -257,20 +276,22 @@ export function historyPage({ weeks, people, deltaOf, page, hasOlder, admin, use
 </nav>` : '';
   return html`
 <h1>History</h1>
-<p class="muted">Past Monday sessions, newest first, with the confirmed matches played that week (Monday to Sunday) and each player's rating change.</p>
-${weeks.length ? '' : html`<section class="card"><p class="muted">No past sessions yet. History starts after the first Monday session.</p></section>`}
-${weeks.map(({ monday, event, played, waitlisted, matches }) => html`
+<p class="muted">Past sessions, newest first, with the confirmed matches played that week (Monday to Sunday) and each player's rating change.</p>
+${weeks.length ? '' : html`<section class="card"><p class="muted">No past sessions yet. History starts after the first session.</p></section>`}
+${weeks.map(({ monday, sessions, matches }) => html`
 <section class="card">
-  <h2>${formatDate(monday)}</h2>
-  <p class="muted">${!event ? 'No session recorded this week.'
-    : event.cancelled ? html`<span class="tag rejected">Cancelled</span>`
-    : html`${event.courts} courts · ${played.length} played${waitlisted ? ` · ${waitlisted} on waitlist` : ''}`}</p>
+  <h2>${sessions.length === 1 ? formatDate(sessions[0].event.date) : `Week of ${formatDate(monday)}`}</h2>
+  ${sessions.length ? '' : html`<p class="muted">No session recorded this week.</p>`}
+  ${sessions.map(({ event, played, waitlisted }) => html`
+  ${sessions.length > 1 ? html`<h3>${formatDate(event.date)}</h3>` : ''}
+  <p class="muted">${event.cancelled ? html`<span class="tag rejected">Cancelled</span>`
+    : html`${formatTime(event.start_min)}–${formatTime(event.end_min)} · ${event.courts} courts · ${played.length} played${waitlisted ? ` · ${waitlisted} on waitlist` : ''}`}</p>
   ${played.length ? html`
   <ul class="plain">${played.map((r) => html`
     <li>${r.guest_name ? person(r.guest_name, null, null, html` <span class="muted">(guest of ${r.name})</span>`) : person(r.name, r.user_id, r.avatar_v)}
       ${event.cost_cents && (admin || r.user_id === user.id)
         ? html`<span class="actions">${payToggle(r, here, admin && r.user_id !== user.id ? 'Mark paid' : "I've paid")}</span>` : ''}</li>`)}
-  </ul>` : ''}
+  </ul>` : ''}`)}
   <div class="part">
     <h3>Matches that week${matches.length ? ` (${matches.length})` : ''}</h3>
     ${matches.length ? html`<ul class="plain">${matches.map((m) => html`<li><span>${historyMatch(m, people, deltaOf)}</span></li>`)}</ul>`
@@ -278,6 +299,46 @@ ${weeks.map(({ monday, event, played, waitlisted, matches }) => html`
   </div>
 </section>`)}
 ${pager}`;
+}
+
+export function playerPage({ player: p, series, record, attended, recent, people, deltaOf, memberSince }) {
+  const wl = ([w, l]) => `${w}–${l}`;
+  const { points, lo, hi } = chartPoints(series);
+  const first = series[Math.max(0, series.length - 30)];
+  return html`
+<section class="card">
+  <div class="profile">
+    ${avatar(p.name, p.id, p.avatar_v, 'lg')}
+    <div>
+      <h1>${p.name}</h1>
+      <p class="muted">Member since ${formatDate(memberSince)}</p>
+    </div>
+  </div>
+  <dl class="stats part">
+    <div><dt>Rating</dt><dd>${fmtRating(p.rating)}</dd></div>
+    <div><dt>Singles</dt><dd>${wl(record.singles)}</dd></div>
+    <div><dt>Doubles</dt><dd>${wl(record.doubles)}</dd></div>
+    <div><dt>Sessions</dt><dd>${attended}</dd></div>
+  </dl>
+  <p class="muted">Win–loss counts confirmed matches. Sessions counts the ones they had a spot in.</p>
+</section>
+<section class="card">
+  <h2>Rating over time</h2>
+  ${points.length > 1 ? html`
+  <svg class="chart" viewBox="0 0 320 120" role="img" aria-label="Rating from ${fmtRating(first)} to ${fmtRating(p.rating)} over the last ${points.length - 1} rated matches">
+    <line class="grid" x1="8" y1="8" x2="312" y2="8"></line>
+    <line class="grid" x1="8" y1="112" x2="312" y2="112"></line>
+    <polyline class="line" points="${points.map((pt) => pt.join(',')).join(' ')}"></polyline>
+    <circle class="dot" cx="${points[points.length - 1][0]}" cy="${points[points.length - 1][1]}" r="4"></circle>
+  </svg>
+  <p class="muted chart-scale"><span>${fmtRating(hi)} top · ${fmtRating(lo)} bottom</span><span>Last ${points.length - 1} rated matches</span></p>`
+    : html`<p class="muted">No rated matches yet. The chart appears after the first confirmed match.</p>`}
+</section>
+<section class="card">
+  <h2>Recent matches</h2>
+  ${recent.length ? html`<ul class="plain">${recent.map((m) => html`<li><span>${historyMatch(m, people, deltaOf)}</span></li>`)}</ul>`
+    : html`<p class="muted">No confirmed matches yet.</p>`}
+</section>`;
 }
 
 export function playersPage(players) {
@@ -407,7 +468,10 @@ export function accountPage(user) {
 </section>`;
 }
 
-export function adminPage({ ev, event, confirmed, waitlist, share, users, tempPassword }) {
+const daySelect = (name, value) => html`
+  <select name="${name}">${WEEKDAYS.map((d, i) => html`<option value="${i}" ${i === value ? 'selected' : ''}>${d}</option>`)}</select>`;
+
+export function adminPage({ ev, event, confirmed, waitlist, share, users, tempPassword, schedule: s, ownerEmail, isOwner }) {
   const paidCount = confirmed.filter((r) => r.paid).length;
   const row = (r, waiting) => html`
     <tr>
@@ -425,14 +489,18 @@ export function adminPage({ ev, event, confirmed, waitlist, share, users, tempPa
 <h1>Admin</h1>
 ${tempPassword ? html`<p class="flash ok" role="status">Temporary password for ${tempPassword.name}: <code>${tempPassword.password}</code> — share it privately; they should change it after logging in.</p>` : ''}
 <section class="card">
-  <h2>Session ${formatManila(ev.startsAt)}</h2>
+  <h2>This session · ${formatDate(event.date)}</h2>
+  <p class="muted">${formatTime(event.start_min)}–${formatTime(event.end_min)}. Registration ${formatManila(ev.opensAt)} → ${formatManila(ev.closesAt)}.</p>
   ${event.cancelled ? html`<p class="status cancelled">This session is cancelled.</p>` : ''}
   <form method="post" action="/admin/event" class="row">
     <input type="hidden" name="date" value="${event.date}">
     <label>Courts <input type="number" name="courts" min="1" max="6" required value="${event.courts}"></label>
     <label>Total court cost (₱) <input type="number" name="cost" min="0" max="1000000" step="0.01" value="${event.cost_cents == null ? '' : (event.cost_cents / 100).toFixed(2)}"></label>
+    <label>Starts <input type="time" name="start" required value="${timeValue(event.start_min)}"></label>
+    <label>Ends <input type="time" name="end" required value="${timeValue(event.end_min)}"></label>
     <button>Save</button>
   </form>
+  <p class="muted">Times here change this session only, e.g. for a holiday. The weekly schedule is below.</p>
   ${share ? html`<p>${peso(share)} per confirmed player · <strong>${paidCount} of ${confirmed.length} paid</strong>.</p>`
     : html`<p class="muted">Enter the total court cost to show each player's share.</p>`}
   <div class="table-wrap part"><table>
@@ -448,16 +516,50 @@ ${tempPassword ? html`<p class="flash ok" role="status">Temporary password for $
   </div>
 </section>
 <section class="card">
+  <h2>Weekly schedule</h2>
+  <p>Every <strong>${WEEKDAYS[s.day]}</strong>, ${formatTime(s.start)}–${formatTime(s.end)}.
+    Registration opens ${WEEKDAYS[s.opensDay]} ${formatTime(s.opensTime)} and closes ${WEEKDAYS[s.closesDay]} ${formatTime(s.closesTime)}.</p>
+  <form method="post" action="/admin/schedule">
+    <div class="row-fields">
+      <label>Day ${daySelect('day', s.day)}</label>
+      <label>Starts <input type="time" name="start" required value="${timeValue(s.start)}"></label>
+      <label>Ends <input type="time" name="end" required value="${timeValue(s.end)}"></label>
+    </div>
+    <div class="row-fields">
+      <label>Registration opens ${daySelect('opens_day', s.opensDay)}</label>
+      <label>at <input type="time" name="opens_time" required value="${timeValue(s.opensTime)}"></label>
+    </div>
+    <div class="row-fields">
+      <label>Registration closes ${daySelect('closes_day', s.closesDay)}</label>
+      <label>at <input type="time" name="closes_time" required value="${timeValue(s.closesTime)}"></label>
+    </div>
+    <button>Save weekly schedule</button>
+  </form>
+  <p class="muted">Applies from the next new session. A session that already exists (with its registrations) keeps its time; change it above. Days are the last such day on or before the session day.</p>
+</section>
+<section class="card">
   <h2>Members (${users.length})</h2>
   <div class="table-wrap"><table>
     <thead><tr><th>Member</th><th>Rating</th><th></th></tr></thead>
     <tbody>${users.map((u) => html`
-      <tr><td>${person(u.name, u.id, u.avatar_v, html`<br><span class="muted email">${u.email}</span>`)}</td><td>${fmtRating(u.rating)}</td>
-        <td><span class="actions">${confirmAction('Reset password', '/admin/reset-password', { id: u.id }, 'Yes, reset')}
-          ${u.avatar_v ? confirmAction('Remove photo', '/admin/remove-photo', { id: u.id }, 'Yes, remove photo') : ''}</span></td></tr>`)}
+      ${(() => {
+        const ownerRow = u.email === ownerEmail;
+        const canTouch = !ownerRow || isOwner;
+        return html`<tr><td>${person(u.name, u.id, u.avatar_v, html`<br><span class="muted email">${u.email}</span>`)}
+          ${ownerRow ? html`<br><span class="tag paid">Owner</span>` : u.is_admin ? html`<br><span class="tag paid">Admin</span>` : ''}</td>
+        <td>${fmtRating(u.rating)}</td>
+        <td><span class="actions">
+          ${canTouch ? confirmAction('Reset password', '/admin/reset-password', { id: u.id }, 'Yes, reset') : ''}
+          ${canTouch && u.avatar_v ? confirmAction('Remove photo', '/admin/remove-photo', { id: u.id }, 'Yes, remove photo') : ''}
+          ${ownerRow ? '' : u.is_admin
+            ? confirmAction('Remove admin', '/admin/role', { id: u.id, admin: 0 }, 'Yes, remove admin')
+            : confirmAction('Make admin', '/admin/role', { id: u.id, admin: 1 }, 'Yes, make admin')}
+        </span></td></tr>`;
+      })()}`)}
     </tbody>
   </table></div>
-  <p class="muted">Resetting a password only replaces the password (ratings and history are kept) and logs that member out.</p>
+  <p class="muted">Resetting a password only replaces the password (ratings and history are kept) and logs that member out.
+    Admins can run sessions and manage members; the owner (set in Cloudflare as ADMIN_EMAIL) can't be removed or changed by other admins.</p>
 </section>`;
 }
 
