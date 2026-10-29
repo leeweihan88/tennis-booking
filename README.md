@@ -6,9 +6,9 @@ Weekly tennis registration for the Monday session, plus player ratings.
 - **Registration:** opens Wednesday 10:00 AM, closes Monday 12:00 PM. Players can withdraw until it closes.
 - **Capacity:** 4 players per court. The admin sets the number of courts each week (default 2 → 8 spots; 3 → 12). Extra sign-ups join a waitlist, which moves up automatically when someone withdraws.
 - **Guests:** members can bring up to 3 friends without accounts. Each guest takes their own spot in sign-up order. Withdrawing yourself also withdraws your guests.
-- **Court cost:** the admin enters the total cost in PHP. Each confirmed spot owes an equal share, and the admin ticks off who has paid. No money is handled online.
+- **Court cost:** the admin enters the total cost in PHP. Each confirmed spot owes an equal share. Players tap **I've paid** for their own spot and their guests' (on Home, or on History for past sessions); the admin can mark or undo anyone's. No money is handled online.
 - **Ratings (0–7):** a 4-question sign-up questionnaire sets the starting rating (1.0–4.0). Players record singles or doubles results, and ratings change (Elo-style) once an opponent confirms.
-- **History:** a tab listing past Monday sessions, newest first, 10 per page. Each card shows who had a spot (Paid/Unpaid for the admin only; the waitlist as a count) and the confirmed matches played that week (Monday to Sunday) with each player's rating change.
+- **History:** a tab listing past Monday sessions, newest first, 10 per page. Each card shows who had a spot (each player sees and can change their own Paid/Unpaid; the admin sees and can change everyone's; the waitlist is a count) and the confirmed matches played that week (Monday to Sunday) with each player's rating change.
 - **Accounts:** email + password. There is no email sending, so the admin resets forgotten passwords from `/admin`.
 - **Profile pictures:** members upload any photo up to 20 MB on `/account`, from the phone gallery or camera. Cloudflare Images crops it to a 256×256 WebP (about 20 KB), which is stored in D1; the original is never kept. Photos are visible only to logged-in members. Without a photo, 2-letter initials are shown (Wesley Lee → WL, Maria → MA) on a colour picked from the name. Guests always show initials. The admin can remove any photo, and each member can upload at most 5 photos a day.
 

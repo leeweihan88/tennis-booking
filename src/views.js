@@ -28,6 +28,7 @@ const MESSAGES = {
   session_restored: ['ok', 'Session restored.'],
   saved: ['ok', 'Saved.'],
   not_found: ['error', 'That item no longer exists.'],
+  payment_saved: ['ok', 'Payment status updated.'],
   photo_saved: ['ok', 'Profile picture updated.'],
   photo_removed: ['ok', 'Profile picture removed; initials are shown instead.'],
   photo_too_big: ['error', `That photo is over ${MAX_UPLOAD_BYTES / 1024 / 1024} MB. Please choose a smaller one.`],
@@ -116,6 +117,15 @@ function playerLabel(r) {
 
 const payTag = (r) => html`<span class="tag ${r.paid ? 'paid' : 'unpaid'}">${r.paid ? 'Paid' : 'Unpaid'}</span>`;
 
+// Tag plus a one-tap toggle. back = the page to return to (validated on the server).
+const payToggle = (r, back, label = "I've paid") => html`${payTag(r)}
+  <form method="post" action="/paid" class="inline">
+    <input type="hidden" name="id" value="${r.id}">
+    <input type="hidden" name="paid" value="${r.paid ? 0 : 1}">
+    <input type="hidden" name="back" value="${back}">
+    <button class="secondary">${r.paid ? 'Undo' : label}</button>
+  </form>`;
+
 export function homePage(d) {
   const { ev, event, status, user, confirmed, waitlist, cap, share } = d;
   const all = [...confirmed, ...waitlist];
@@ -142,7 +152,7 @@ export function homePage(d) {
             : html`<span class="person">${avatar(r.name, r.user_id, r.avatar_v)}<strong>You</strong></span>`}
           <span class="actions">
             <span class="tag">${place(r)}</span>
-            ${share && confirmed.includes(r) ? payTag(r) : ''}
+            ${share && confirmed.includes(r) ? payToggle(r, '/') : ''}
             ${open && r.guest_name ? confirmAction('Remove', '/withdraw', { id: r.id }, `Remove ${r.guest_name}`) : ''}
           </span>
         </li>`)}
@@ -150,7 +160,7 @@ export function homePage(d) {
       ${share && myConfirmed.length ? html`
         <p>Your share: <strong>${peso(share * myConfirmed.length)}</strong>
           ${myConfirmed.length > 1 ? html`<span class="muted">(${peso(share)} × ${myConfirmed.length} spots)</span>` : ''}.
-          Pay the organiser directly; they mark it paid here.</p>` : ''}
+          Pay the organiser directly, then tap <strong>I've paid</strong>.</p>` : ''}
       ${open ? html`
         <div class="actions">${confirmAction(
           guests.length ? 'Withdraw me and my guests' : 'Withdraw', '/withdraw', { id: self.id },
@@ -168,7 +178,7 @@ export function homePage(d) {
 
   return html`
 <section class="card">
-  <h1>Monday tennis</h1>
+  <h1>Monday Tennis @ CSA</h1>
   <p class="big">${formatManila(ev.startsAt)} – 9:30 PM</p>
   <p>${event.courts} courts · ${confirmed.length}/${cap} spots taken${waitlist.length ? html` · ${waitlist.length} on waitlist` : ''}</p>
   <p class="status ${status}">${STATUS_TEXT[status](ev)}</p>
@@ -238,7 +248,8 @@ function historyMatch(m, people, deltaOf) {
   return html`<span class="muted">${formatDate(m.played_on)}</span> <strong>${side(win)}</strong> beat ${side(lose)}${m.score ? ` (${m.score})` : ''}`;
 }
 
-export function historyPage({ weeks, people, deltaOf, page, hasOlder, admin }) {
+export function historyPage({ weeks, people, deltaOf, page, hasOlder, admin, user }) {
+  const here = page > 1 ? `/history?page=${page}` : '/history';
   const pager = page > 1 || hasOlder ? html`
 <nav class="pager" aria-label="History pages">
   ${page > 1 ? html`<a href="/history${page > 2 ? `?page=${page - 1}` : ''}">← Newer</a>` : html`<span></span>`}
@@ -257,7 +268,8 @@ ${weeks.map(({ monday, event, played, waitlisted, matches }) => html`
   ${played.length ? html`
   <ul class="plain">${played.map((r) => html`
     <li>${r.guest_name ? person(r.guest_name, null, null, html` <span class="muted">(guest of ${r.name})</span>`) : person(r.name, r.user_id, r.avatar_v)}
-      ${admin && event.cost_cents ? payTag(r) : ''}</li>`)}
+      ${event.cost_cents && (admin || r.user_id === user.id)
+        ? html`<span class="actions">${payToggle(r, here, admin && r.user_id !== user.id ? 'Mark paid' : "I've paid")}</span>` : ''}</li>`)}
   </ul>` : ''}
   <div class="part">
     <h3>Matches that week${matches.length ? ` (${matches.length})` : ''}</h3>

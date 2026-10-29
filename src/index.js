@@ -65,7 +65,7 @@ function removeRegistration(db, reg) {
 
 async function home(c) {
   const d = await loadEventView(c.db, c.now);
-  return c.page('Monday tennis', view.homePage({ ...d, user: c.user }));
+  return c.page('Monday Tennis @ CSA', view.homePage({ ...d, user: c.user }));
 }
 
 function loginPage(c) {
@@ -202,7 +202,7 @@ async function history(c) {
   ).bind(current, HISTORY_PAGE + 1, (page - 1) * HISTORY_PAGE).all();
   const hasOlder = weeks.length > HISTORY_PAGE;
   const mondays = weeks.slice(0, HISTORY_PAGE).map((w) => w.monday);
-  if (!mondays.length) return c.page('History', view.historyPage({ weeks: [], page, hasOlder: false, admin: c.admin }));
+  if (!mondays.length) return c.page('History', view.historyPage({ weeks: [], page, hasOlder: false, admin: c.admin, user: c.user }));
 
   const list = mondays.map(() => '?').join(',');
   const [events, regs, matches, deltas, users] = await c.db.batch([
@@ -239,7 +239,7 @@ async function history(c) {
       matches: matches.results.filter((m) => m.monday === monday),
     };
   });
-  return c.page('History', view.historyPage({ weeks: data, people, deltaOf, page, hasOlder, admin: c.admin }));
+  return c.page('History', view.historyPage({ weeks: data, people, deltaOf, page, hasOlder, admin: c.admin, user: c.user }));
 }
 
 async function recordMatch(c) {
@@ -413,6 +413,18 @@ async function adminCancel(c) {
   return redirect(cancelled ? '/admin?m=session_cancelled' : '/admin?m=session_restored');
 }
 
+// Players mark their own spots and their guests' as paid (or undo); the admin can mark anyone's.
+async function markPaid(c) {
+  const id = int(c.form, 'id', 1, Number.MAX_SAFE_INTEGER);
+  const paid = int(c.form, 'paid', 0, 1);
+  const back = safePath(c.form.get('back'));
+  const sep = back.includes('?') ? '&' : '?';
+  if (!id || paid === null) return redirect(`${back}${sep}m=bad_input`);
+  const { meta } = await c.db.prepare('UPDATE registrations SET paid = ?1 WHERE id = ?2 AND (user_id = ?3 OR ?4)')
+    .bind(paid, id, c.user.id, c.admin ? 1 : 0).run();
+  return redirect(`${back}${sep}m=${meta.changes ? 'payment_saved' : 'not_found'}`);
+}
+
 async function adminPaid(c) {
   const id = int(c.form, 'id', 1, Number.MAX_SAFE_INTEGER);
   const paid = int(c.form, 'paid', 0, 1);
@@ -498,6 +510,7 @@ const ROUTES = {
   'POST /signup': [signup, USER],
   'POST /guests': [addGuest, USER],
   'POST /withdraw': [withdraw, USER],
+  'POST /paid': [markPaid, USER],
   'GET /players': [players, USER],
   'GET /matches': [matchesPage, USER],
   'GET /history': [history, USER],
