@@ -64,7 +64,9 @@ const confirmAction = (label, action, fields, confirmLabel) => html`
     </form>
   </details>`;
 
-export function layout({ title, user, admin, flash, path }, body) {
+export const CROP_SCRIPT = '/crop-v1.js';
+
+export function layout({ title, user, admin, flash, path, script }, body) {
   const msg = MESSAGES[flash];
   const link = (href, label) => html`<a href="${href}" ${href === path ? html`aria-current="page"` : ''}>${label}</a>`;
   return html`<!doctype html>
@@ -73,8 +75,9 @@ export function layout({ title, user, admin, flash, path }, body) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${title} · CSA Tennis</title>
-<link rel="stylesheet" href="/app-v4.css">
+<link rel="stylesheet" href="/app-v5.css">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+${script ? html`<script type="module" src="${script}"></script>` : ''}
 </head>
 <body>
 <header>
@@ -307,8 +310,21 @@ export function accountPage(user) {
       <span class="pick-done">✓ Photo selected · tap to change</span>
     </label>
     <button class="photo-save">Save photo</button>
-    <p class="muted">Any photo up to ${MAX_UPLOAD_BYTES / 1024 / 1024} MB, from your gallery or camera. It is cropped to a square, and only members who are logged in can see it. Saving can take a few seconds on mobile data. Without a photo, your initials are shown.</p>
+    <p class="muted">Any photo up to ${MAX_UPLOAD_BYTES / 1024 / 1024} MB, from your gallery or camera. You can move and zoom it inside the circle. Only members who are logged in can see it. Saving can take a few seconds on mobile data. Without a photo, your initials are shown.</p>
   </form>
+  <!-- Move-and-scale screen, opened by /crop-v1.js after a photo is chosen. -->
+  <div class="cropper" hidden role="dialog" aria-modal="true" aria-labelledby="crop-title">
+    <p class="crop-title" id="crop-title">Move and scale</p>
+    <div class="crop-view" tabindex="0" aria-label="Photo. Drag or use the arrow keys to move it.">
+      <img class="crop-img" alt="">
+      <div class="crop-ring" aria-hidden="true"></div>
+    </div>
+    <label class="crop-zoom">Zoom <input type="range" min="1" max="4" step="0.01" value="1"></label>
+    <div class="crop-actions">
+      <button type="button" class="link crop-cancel">Cancel</button>
+      <button type="button" class="crop-use">Use photo</button>
+    </div>
+  </div>
   <form method="post" action="/account/name" class="row part">
     <label>Name <input name="name" required maxlength="50" value="${user.name}" autocomplete="name"></label>
     <button>Save name</button>
