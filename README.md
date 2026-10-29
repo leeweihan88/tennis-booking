@@ -1,13 +1,16 @@
 # CSA Tennis
 
-Weekly tennis registration for the Monday session, plus player ratings.
+Weekly tennis registration, plus player ratings and profiles.
 
-- **Session:** every Monday 7:30–9:30 PM, Philippine time (UTC+8).
-- **Registration:** opens Wednesday 10:00 AM, closes Monday 12:00 PM. Players can withdraw until it closes.
+- **Session:** weekly, Philippine time (UTC+8). The default is Monday 7:30–9:30 PM; admins change the day, times and registration window under **Admin → Weekly schedule**. Changes apply from the next new session: each session keeps a snapshot of its own times, so a session people have registered for never moves. A single session's start/end time can be changed on its own (e.g. a holiday). The home heading follows the day ("Monday Tennis @ CSA").
+- **Registration:** by default opens Wednesday 10:00 AM and closes Monday 12:00 PM, with a countdown and a spots bar on Home. Players can withdraw until it closes.
 - **Capacity:** 4 players per court. The admin sets the number of courts each week (default 2 → 8 spots; 3 → 12). Extra sign-ups join a waitlist, which moves up automatically when someone withdraws.
 - **Guests:** members can bring up to 3 friends without accounts. Each guest takes their own spot in sign-up order. Withdrawing yourself also withdraws your guests.
 - **Court cost:** the admin enters the total cost in PHP. Each confirmed spot owes an equal share. Players tap **I've paid** for their own spot and their guests' (on Home, or on History for past sessions); the admin can mark or undo anyone's. No money is handled online.
 - **Ratings (0–7):** a 4-question sign-up questionnaire sets the starting rating (1.0–4.0). Players record singles or doubles results, and ratings change (Elo-style) once an opponent confirms.
+- **Player profiles:** tap any member's name: photo, rating, a rating-over-time chart (inline SVG), singles and doubles win–loss, sessions attended and recent matches. Emails are never shown.
+- **Admins:** the `ADMIN_EMAIL` account is the owner. Any admin can make other members admins (or remove them) on the Admin page. Other admins can't demote the owner, reset the owner's password or remove the owner's photo.
+- **Install as an app:** "Add to Home Screen" on phones (web manifest, icons, full-screen standalone mode).
 - **History:** a tab listing past Monday sessions, newest first, 10 per page. Each card shows who had a spot (each player sees and can change their own Paid/Unpaid; the admin sees and can change everyone's; the waitlist is a count) and the confirmed matches played that week (Monday to Sunday) with each player's rating change.
 - **Accounts:** email + password. There is no email sending, so the admin resets forgotten passwords from `/admin`.
 - **Profile pictures:** members upload any photo up to 20 MB on `/account`, from the phone gallery or camera. Cloudflare Images crops it to a 256×256 WebP (about 20 KB), which is stored in D1; the original is never kept. Photos are visible only to logged-in members. Without a photo, 2-letter initials are shown (Wesley Lee → WL, Maria → MA) on a colour picked from the name. Guests always show initials. The admin can remove any photo, and each member can upload at most 5 photos a day.
@@ -32,6 +35,7 @@ Browser ──► Cloudflare edge (TLS, DDoS protection, CDN)
 | `src/schedule.js` | Weekly schedule maths (Manila time) |
 | `src/rating.js` | Rating algorithm and questionnaire |
 | `src/avatar.js` | Initials, avatar colours, photo resizing |
+| `src/chart.js` | Rating-over-time series and SVG chart points |
 | `src/http.js` | Escaping, security headers, origin check, safe redirects |
 | `public/` | Static assets; `_headers` sets their security and cache headers |
 | `public/crop-v1.js` | Photo cropper (Account page only): move and scale inside a circle, uploads a 512×512 JPEG |
@@ -115,7 +119,7 @@ Search engines are asked not to index the site (`public/robots.txt`), because pa
 
 - No client JavaScript except the ~3 KB photo cropper on `/account` (no libraries). Each page is one HTML response plus one ~2.5 KB (compressed) stylesheet. Other interactive bits use plain HTML and CSS: two-step `<details>` confirmations and a CSS `:has()` singles/doubles toggle (older browsers just show all fields). If the cropper doesn't run, the photo upload still works without it (centre crop on the server).
 - The cropper sends a 512×512 JPEG (~100 KB) instead of the original multi-MB photo, so uploads are fast on mobile data.
-- `app-v6.css` and `crop-v1.js` are cached for a year (`immutable`). To change either, rename it to the next version and update the reference in `src/views.js`.
+- `app-v7.css`, `logo-v1.svg` and `crop-v1.js` are cached for a year (`immutable`). To change either, rename it to the next version and update the reference in `src/views.js`.
 - Brotli/gzip compression is automatic at Cloudflare's edge. Cloudflare's Auto Minify feature has been retired, and the files are already small.
 - HTML and the API are `no-store`, so the list of who's in is always live.
 - Each page makes one to three D1 queries, using indexes on `registrations(event_id, id)` and `matches(status, id)`.
@@ -126,7 +130,7 @@ After the first deploy, with `URL=https://csa-tennis.<your-subdomain>.workers.de
 
 - [ ] **SSL:** `curl -sI $URL` shows `HTTP/2 200` and `strict-transport-security`.
 - [ ] **Headers:** the same response has `content-security-policy`, `x-frame-options: DENY` and `x-content-type-options: nosniff`.
-- [ ] **Caching:** `curl -sI $URL/app-v6.css` twice; the second shows `cf-cache-status: HIT` and `cache-control: public, max-age=31536000, immutable`.
+- [ ] **Caching:** `curl -sI $URL/app-v7.css` twice; the second shows `cf-cache-status: HIT` and `cache-control: public, max-age=31536000, immutable`.
 - [ ] **Open redirect:** log in via `$URL/login?next=//example.com`; you land on `/`.
 - [ ] **Admin:** registering with `ADMIN_EMAIL` shows the Admin link. Another account gets 404 on `/admin`.
 - [ ] **Flow:** register → sign up → add a guest → withdraw → the waitlist moves up.
