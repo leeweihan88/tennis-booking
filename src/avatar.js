@@ -1,8 +1,11 @@
 // Profile pictures: initials fallback and server-side resizing via Cloudflare Images.
-export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+// 20 MB is the largest input Cloudflare Images accepts; full-size iPhone photos can exceed 10 MB.
+export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 export const UPLOADS_PER_DAY = 5;
 const SIZE = 256;
 const MAX_OUTPUT_BYTES = 200 * 1024;
+// Errors that mean "this file is not a usable image"; anything else is the service or the plan.
+const FORMAT_ERROR = /unsupported image format|corrupt|bad dimensions|\b(9413|9520|9523)\b/i;
 export const COLOURS = 8;
 
 // "Wesley Lee" → "WL", "Maria" → "MA", "wesley (Wes) lee" → "WL".
@@ -42,6 +45,6 @@ export async function resizePhoto(images, file) {
     return { bytes };
   } catch (e) {
     console.error('photo resize failed', e);
-    return { error: String(e && e.message).includes('9422') ? 'photo_unavailable' : 'bad_photo' };
+    return { error: FORMAT_ERROR.test(String(e && e.message)) ? 'bad_photo' : 'photo_unavailable' };
   }
 }

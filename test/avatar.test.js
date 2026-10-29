@@ -35,6 +35,16 @@ test('resizePhoto rejects without calling Images when input is invalid', async (
   assert.deepEqual(await resizePhoto(images, file(MAX_UPLOAD_BYTES + 1)), { error: 'photo_too_big' });
 });
 
+test('resizePhoto: format errors are bad_photo, service errors are photo_unavailable', async () => {
+  const file = { size: 10, arrayBuffer: async () => new ArrayBuffer(10) };
+  const failing = (msg) => ({ info: async () => { throw new Error(msg); } });
+  assert.deepEqual(await resizePhoto(failing('Input buffer contains unsupported image format'), file), { error: 'bad_photo' });
+  assert.deepEqual(await resizePhoto(failing('IMAGES_TRANSFORM_ERROR 9520: unsupported'), file), { error: 'bad_photo' });
+  assert.deepEqual(await resizePhoto(failing('9432: The Images Binding is not available using legacy billing'), file), { error: 'photo_unavailable' });
+  assert.deepEqual(await resizePhoto(failing('9422: usage limit reached'), file), { error: 'photo_unavailable' });
+  assert.deepEqual(await resizePhoto(failing('network connection lost'), file), { error: 'photo_unavailable' });
+});
+
 test('resizePhoto rejects SVG', async () => {
   const images = { info: async () => ({ format: 'image/svg+xml' }) };
   const file = { size: 10, arrayBuffer: async () => new ArrayBuffer(10) };

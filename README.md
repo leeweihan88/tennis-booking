@@ -9,7 +9,7 @@ Weekly tennis registration for the Monday session, plus player ratings.
 - **Court cost:** the admin enters the total cost in PHP. Each confirmed spot owes an equal share, and the admin ticks off who has paid. No money is handled online.
 - **Ratings (0–7):** a 4-question sign-up questionnaire sets the starting rating (1.0–4.0). Players record singles or doubles results, and ratings change (Elo-style) once an opponent confirms.
 - **Accounts:** email + password. There is no email sending, so the admin resets forgotten passwords from `/admin`.
-- **Profile pictures:** members upload any photo up to 10 MB on `/account`. Cloudflare Images crops it to a 256×256 WebP (about 20 KB), which is stored in D1; the original is never kept. Photos are visible only to logged-in members. Without a photo, 2-letter initials are shown (Wesley Lee → WL, Maria → MA) on a colour picked from the name. Guests always show initials. The admin can remove any photo, and each member can upload at most 5 photos a day.
+- **Profile pictures:** members upload any photo up to 20 MB on `/account`, from the phone gallery or camera. Cloudflare Images crops it to a 256×256 WebP (about 20 KB), which is stored in D1; the original is never kept. Photos are visible only to logged-in members. Without a photo, 2-letter initials are shown (Wesley Lee → WL, Maria → MA) on a colour picked from the name. Guests always show initials. The admin can remove any photo, and each member can upload at most 5 photos a day.
 
 ## Architecture
 
@@ -102,7 +102,7 @@ Run the same command with `csa-tennis-preview` so Previews stay in step.
 | XSS: every value goes through the auto-escaping `html` template | `src/views.js` |
 | Double booking, guest limit, rating applied once: enforced by the database (unique indexes, single-statement checks, transactional batch) | `src/index.js`, schema |
 | `/admin` returns 404 to non-admins | `src/index.js` |
-| Photo uploads: only on `POST /account/photo`, size checked from `Content-Length` before reading (10 MB), SVG and non-images rejected, always re-encoded to WebP (strips metadata such as GPS location), 5 per member per day, served only to logged-in members with `nosniff` | `src/avatar.js`, `src/index.js` |
+| Photo uploads: only on `POST /account/photo`, size checked from `Content-Length` before reading (20 MB, the Cloudflare Images maximum), SVG and non-images rejected, always re-encoded to WebP (strips metadata such as GPS location), 5 per member per day, served only to logged-in members with `nosniff` | `src/avatar.js`, `src/index.js` |
 | DDoS protection | Cloudflare, always on |
 
 Search engines are asked not to index the site (`public/robots.txt`), because pages list member names.
@@ -112,7 +112,7 @@ Search engines are asked not to index the site (`public/robots.txt`), because pa
 ## Performance
 
 - No client JavaScript. Each page is one HTML response plus one ~2 KB (compressed) stylesheet. Interactive bits use plain HTML and CSS: two-step `<details>` confirmations and a CSS `:has()` singles/doubles toggle (older browsers just show all fields).
-- `app-v3.css` is cached for a year (`immutable`). To change styles, rename it to `app-v4.css` and update the link in `src/views.js`.
+- `app-v4.css` is cached for a year (`immutable`). To change styles, rename it to `app-v5.css` and update the link in `src/views.js`.
 - Brotli/gzip compression is automatic at Cloudflare's edge. Cloudflare's Auto Minify feature has been retired, and the files are already small.
 - HTML and the API are `no-store`, so the list of who's in is always live.
 - Each page makes one to three D1 queries, using indexes on `registrations(event_id, id)` and `matches(status, id)`.
@@ -123,7 +123,7 @@ After the first deploy, with `URL=https://csa-tennis.<your-subdomain>.workers.de
 
 - [ ] **SSL:** `curl -sI $URL` shows `HTTP/2 200` and `strict-transport-security`.
 - [ ] **Headers:** the same response has `content-security-policy`, `x-frame-options: DENY` and `x-content-type-options: nosniff`.
-- [ ] **Caching:** `curl -sI $URL/app-v3.css` twice; the second shows `cf-cache-status: HIT` and `cache-control: public, max-age=31536000, immutable`.
+- [ ] **Caching:** `curl -sI $URL/app-v4.css` twice; the second shows `cf-cache-status: HIT` and `cache-control: public, max-age=31536000, immutable`.
 - [ ] **Open redirect:** log in via `$URL/login?next=//example.com`; you land on `/`.
 - [ ] **Admin:** registering with `ADMIN_EMAIL` shows the Admin link. Another account gets 404 on `/admin`.
 - [ ] **Flow:** register → sign up → add a guest → withdraw → the waitlist moves up.

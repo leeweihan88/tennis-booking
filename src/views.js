@@ -73,7 +73,7 @@ export function layout({ title, user, admin, flash, path }, body) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${title} · CSA Tennis</title>
-<link rel="stylesheet" href="/app-v3.css">
+<link rel="stylesheet" href="/app-v4.css">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 </head>
 <body>
@@ -299,12 +299,16 @@ export function accountPage(user) {
       ${user.avatar_v ? confirmAction('Remove photo', '/account/photo/remove', {}, 'Yes, use my initials') : ''}
     </div>
   </div>
-  <form method="post" action="/account/photo" enctype="multipart/form-data" class="row part">
-    <label>${user.avatar_v ? 'Change profile picture' : 'Add a profile picture'}
-      <input type="file" name="photo" accept="image/*" required></label>
-    <button>Upload</button>
+  <!-- One big button opens the phone's photo picker/camera; Save appears only once a photo is chosen (CSS :has). -->
+  <form method="post" action="/account/photo" enctype="multipart/form-data" class="photo-form part">
+    <label class="photo-pick">
+      <input type="file" name="photo" accept="image/*" required>
+      <span class="pick-empty">${user.avatar_v ? 'Change photo' : 'Choose or take a photo'}</span>
+      <span class="pick-done">✓ Photo selected · tap to change</span>
+    </label>
+    <button class="photo-save">Save photo</button>
+    <p class="muted">Any photo up to ${MAX_UPLOAD_BYTES / 1024 / 1024} MB, from your gallery or camera. It is cropped to a square, and only members who are logged in can see it. Saving can take a few seconds on mobile data. Without a photo, your initials are shown.</p>
   </form>
-  <p class="muted">Any photo up to ${MAX_UPLOAD_BYTES / 1024 / 1024} MB. It is cropped to a square and only members who are logged in can see it. Without one, your initials are shown.</p>
   <form method="post" action="/account/name" class="row part">
     <label>Name <input name="name" required maxlength="50" value="${user.name}" autocomplete="name"></label>
     <button>Save name</button>
