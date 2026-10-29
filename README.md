@@ -101,8 +101,8 @@ Search engines are asked not to index the site (`public/robots.txt`), because pa
 
 ## Performance
 
-- No client JavaScript. Each page is one HTML response plus one ~3 KB stylesheet.
-- `app-v1.css` is cached for a year (`immutable`). To change styles, rename it to `app-v2.css` and update the link in `src/views.js`.
+- No client JavaScript. Each page is one HTML response plus one ~2 KB (compressed) stylesheet. Interactive bits use plain HTML and CSS: two-step `<details>` confirmations and a CSS `:has()` singles/doubles toggle (older browsers just show all fields).
+- `app-v2.css` is cached for a year (`immutable`). To change styles, rename it to `app-v3.css` and update the link in `src/views.js`.
 - Brotli/gzip compression is automatic at Cloudflare's edge. Cloudflare's Auto Minify feature has been retired, and the files are already small.
 - HTML and the API are `no-store`, so the list of who's in is always live.
 - Each page makes one to three D1 queries, using indexes on `registrations(event_id, id)` and `matches(status, id)`.
@@ -113,7 +113,7 @@ After the first deploy, with `URL=https://csa-tennis.<your-subdomain>.workers.de
 
 - [ ] **SSL:** `curl -sI $URL` shows `HTTP/2 200` and `strict-transport-security`.
 - [ ] **Headers:** the same response has `content-security-policy`, `x-frame-options: DENY` and `x-content-type-options: nosniff`.
-- [ ] **Caching:** `curl -sI $URL/app-v1.css` twice; the second shows `cf-cache-status: HIT` and `cache-control: public, max-age=31536000, immutable`.
+- [ ] **Caching:** `curl -sI $URL/app-v2.css` twice; the second shows `cf-cache-status: HIT` and `cache-control: public, max-age=31536000, immutable`.
 - [ ] **Open redirect:** log in via `$URL/login?next=//example.com`; you land on `/`.
 - [ ] **Admin:** registering with `ADMIN_EMAIL` shows the Admin link. Another account gets 404 on `/admin`.
 - [ ] **Flow:** register → sign up → add a guest → withdraw → the waitlist moves up.

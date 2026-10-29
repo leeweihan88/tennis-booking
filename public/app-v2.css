@@ -1,0 +1,113 @@
+/* CSA Tennis. Renaming this file (app-v3.css) is the cache-bust: it is cached for a year. */
+:root {
+  --bg: #f6f7f4; --card: #fff; --text: #1d2420; --muted: #5f6b64; --line: #dde2dc;
+  --control: #7d8a83; /* ≥3:1 against bg and card, for input and radio outlines */
+  --brand: #2f6b3a; --brand-text: #fff; --ok: #e3f2e5; --error: #fbe4e1; --danger: #a3352b;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121614; --card: #1b201d; --text: #e7ece8; --muted: #9aa69f; --line: #2c3430;
+    --control: #7d8a83;
+    --brand: #6fbf7d; --brand-text: #0d130f; --ok: #1f3324; --error: #3d2220; --danger: #f2a39a;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+a { color: var(--brand); }
+
+/* Navigation */
+header { background: var(--card); border-bottom: 1px solid var(--line); }
+nav { max-width: 760px; margin: 0 auto; padding: 0 16px; display: flex; flex-wrap: wrap; column-gap: 20px; align-items: center; }
+nav a { color: var(--text); text-decoration: none; padding: 14px 0 11px; border-bottom: 3px solid transparent; }
+nav a:hover { color: var(--brand); }
+nav a[aria-current="page"] { color: var(--brand); border-bottom-color: var(--brand); font-weight: 600; }
+nav .brand { font-weight: 700; margin-right: auto; color: var(--brand); }
+nav form { margin: 0 0 0 4px; padding-left: 20px; border-left: 1px solid var(--line); }
+nav form button.link { color: var(--muted); }
+
+/* Layout */
+main { max-width: 760px; margin: 0 auto; padding: 16px; }
+h1 { font-size: 1.6rem; margin: 8px 0 12px; }
+h2 { font-size: 1.15rem; margin: 0 0 8px; }
+h3 { font-size: 1rem; margin: 0 0 8px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+.card h1:first-child { margin-top: 0; }
+.narrow { max-width: 440px; margin-left: auto; margin-right: auto; }
+.part { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 16px; }
+.big { font-size: 1.2rem; font-weight: 600; margin: 0 0 4px; }
+.muted { color: var(--muted); font-size: .9rem; }
+.status { font-weight: 600; }
+.status.open { color: var(--brand); }
+.status.cancelled { color: var(--danger); }
+.flash { padding: 10px 14px; border-radius: 8px; }
+.flash.ok { background: var(--ok); }
+.flash.error { background: var(--error); }
+.note { border-left: 4px solid var(--brand); background: var(--ok); padding: 10px 14px; border-radius: 0 8px 8px 0; margin: 0 0 16px; }
+.rating { display: inline-block; font-size: .8rem; font-weight: 600; padding: 1px 8px; border-radius: 999px;
+  border: 1px solid var(--brand); color: var(--brand); margin-left: 6px; font-variant-numeric: tabular-nums; }
+
+/* Forms */
+label { display: block; margin-bottom: 12px; font-weight: 500; }
+input, select { display: block; width: 100%; margin-top: 4px; padding: 10px; font: inherit; color: inherit;
+  background: var(--bg); border: 1px solid var(--control); border-radius: 8px; }
+input:focus-visible, select:focus-visible, button:focus-visible, summary:focus-visible, .choice input:focus-visible + span {
+  outline: 3px solid var(--brand); outline-offset: 2px; }
+::placeholder { color: var(--muted); opacity: 1; }
+label.check { display: flex; gap: 10px; align-items: center; font-weight: 400; }
+input[type=radio], input[type=checkbox] { width: 20px; height: 20px; margin: 0; accent-color: var(--brand); }
+fieldset { border: 0; padding: 0; margin: 0 0 12px; }
+legend { font-weight: 500; padding: 0; margin-bottom: 4px; }
+
+/* Segmented choice: radio buttons styled as large toggle buttons */
+.choice { display: flex; gap: 8px; }
+.choice label { flex: 1; margin: 0; }
+.choice input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.choice span { display: block; text-align: center; padding: 10px; border: 1px solid var(--control); border-radius: 8px; cursor: pointer; }
+.choice input:checked + span { background: var(--brand); color: var(--brand-text); border-color: var(--brand); font-weight: 600; }
+
+/* Doubles-only fields hide while Singles is chosen (no JavaScript needed). */
+form:has(input[name=type][value=singles]:checked) .doubles-only { display: none; }
+
+/* Buttons */
+button, .button { display: inline-block; padding: 10px 16px; font: inherit; font-weight: 600; border: 0; border-radius: 8px;
+  background: var(--brand); color: var(--brand-text); cursor: pointer; text-decoration: none; }
+button.secondary { background: transparent; color: var(--text); border: 1px solid var(--control); padding: 6px 12px; font-weight: 500; }
+button.danger { background: var(--danger); color: var(--card); padding: 6px 12px; }
+button.link { background: none; color: var(--text); padding: 0; font-weight: 400; }
+form.inline { display: inline-block; margin: 0 0 0 8px; }
+form.row { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+form.row label { flex: 1 1 160px; margin: 0; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+
+/* Two-step confirmation for destructive actions */
+details.confirm { display: inline-block; }
+details.confirm summary { list-style: none; cursor: pointer; display: inline-block; padding: 6px 12px; border-radius: 8px;
+  border: 1px solid var(--danger); color: var(--danger); font-weight: 500; }
+details.confirm summary::-webkit-details-marker { display: none; }
+details.confirm[open] summary { opacity: .7; }
+details.confirm form { display: inline-block; margin: 6px 0 0 6px; }
+
+/* Lists and tables */
+ol, ul { padding-left: 24px; }
+li { margin: 6px 0; }
+li.me { font-weight: 600; }
+ul.plain { list-style: none; padding: 0; }
+ul.plain li { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between;
+  padding: 8px 0; border-bottom: 1px solid var(--line); margin: 0; }
+table { width: 100%; border-collapse: collapse; }
+.table-wrap { overflow-x: auto; }
+th, td { text-align: left; padding: 10px 6px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+th { font-size: .9rem; font-weight: 600; color: var(--muted); }
+td .email { overflow-wrap: anywhere; }
+td button, td summary { white-space: nowrap; }
+td:last-child { text-align: right; }
+.tag { font-size: .8rem; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--control); white-space: nowrap; }
+.tag.confirmed, .tag.paid { background: var(--ok); border-color: var(--brand); }
+.tag.rejected, .tag.unpaid { background: var(--error); border-color: var(--danger); }
+code { background: var(--bg); padding: 2px 6px; border-radius: 4px; }
+@media (max-width: 520px) {
+  form.inline { margin-left: 0; }
+  nav { column-gap: 14px; }
+  nav form { padding-left: 14px; }
+}

@@ -185,18 +185,20 @@ async function matchesPage(c) {
 async function recordMatch(c) {
   const bad = () => redirect('/matches?m=bad_input');
   const max = Number.MAX_SAFE_INTEGER;
+  const type = c.form.get('type');
+  if (type !== 'singles' && type !== 'doubles') return bad();
+  const doubles = type === 'doubles';
+  // Singles ignores partner fields, which stay in the form but are hidden.
   const p1 = c.user.id;
-  const p2 = c.form.get('p2') ? int(c.form, 'p2', 1, max) : null;
+  const p2 = doubles ? int(c.form, 'p2', 1, max) : null;
   const p3 = int(c.form, 'p3', 1, max);
-  const p4 = c.form.get('p4') ? int(c.form, 'p4', 1, max) : null;
+  const p4 = doubles ? int(c.form, 'p4', 1, max) : null;
   const winner = int(c.form, 'winner', 1, 2);
   const score = (c.form.get('score') || '').trim();
   const playedOn = c.form.get('played_on') || '';
 
   const ids = [p1, p2, p3, p4].filter((x) => x !== null);
-  const doubles = p2 !== null || p4 !== null;
   if (!p3 || !winner || (doubles && (p2 === null || p4 === null))) return bad();
-  if ((c.form.get('p2') && p2 === null) || (c.form.get('p4') && p4 === null)) return bad();
   if (new Set(ids).size !== ids.length) return bad();
   if (score.length > 40 || !SCORE_RE.test(score)) return bad();
   const today = manilaDate(c.now);
@@ -265,10 +267,18 @@ function accountPage(c) {
   return c.page('Account', view.accountPage(c.user));
 }
 
+async function changeName(c) {
+  const name = text(c.form, 'name', 50);
+  if (!name) return redirect('/account?m=bad_input');
+  await c.db.prepare('UPDATE users SET name = ? WHERE id = ?').bind(name, c.user.id).run();
+  return redirect('/account?m=name_changed');
+}
+
 async function changePassword(c) {
   const current = c.form.get('current') || '';
   const pw = password(c.form, 'password');
   if (!pw) return redirect('/account?m=bad_input');
+  if (pw !== c.form.get('password2')) return redirect('/account?m=password_mismatch');
   if (current.length > 128 || !(await verifyPassword(current, c.user))) return redirect('/account?m=wrong_password');
   const { hash, salt } = await hashPassword(pw);
   await c.db.batch([
@@ -295,9 +305,17 @@ async function adminEvent(c) {
     || (cost !== null && !(Number.isFinite(cost) && cost >= 0 && cost <= 1_000_000))) {
     return redirect('/admin?m=bad_input');
   }
-  await c.db.prepare('UPDATE events SET courts = ?, cost_cents = ?, cancelled = ? WHERE date = ?')
-    .bind(courts, cost === null ? null : Math.round(cost * 100), c.form.get('cancelled') === '1' ? 1 : 0, ev.date).run();
+  await c.db.prepare('UPDATE events SET courts = ?, cost_cents = ? WHERE date = ?')
+    .bind(courts, cost === null ? null : Math.round(cost * 100), ev.date).run();
   return redirect('/admin?m=saved');
+}
+
+async function adminCancel(c) {
+  const ev = currentEvent(c.now);
+  const cancelled = int(c.form, 'cancelled', 0, 1);
+  if (c.form.get('date') !== ev.date || cancelled === null) return redirect('/admin?m=bad_input');
+  await c.db.prepare('UPDATE events SET cancelled = ? WHERE date = ?').bind(cancelled, ev.date).run();
+  return redirect(cancelled ? '/admin?m=session_cancelled' : '/admin?m=session_restored');
 }
 
 async function adminPaid(c) {
@@ -374,9 +392,11 @@ const ROUTES = {
   'POST /matches/confirm': [confirmMatch, USER],
   'POST /matches/reject': [rejectMatch, USER],
   'GET /account': [accountPage, USER],
+  'POST /account/name': [changeName, USER],
   'POST /account/password': [changePassword, USER],
   'GET /admin': [(c) => adminPage(c), ADMIN],
   'POST /admin/event': [adminEvent, ADMIN],
+  'POST /admin/cancel': [adminCancel, ADMIN],
   'POST /admin/paid': [adminPaid, ADMIN],
   'POST /admin/remove': [adminRemove, ADMIN],
   'POST /admin/reset-password': [adminResetPassword, ADMIN],
@@ -398,7 +418,7 @@ export default {
     const adminEmail = (env.ADMIN_EMAIL || '').trim().toLowerCase();
     const admin = Boolean(user && adminEmail && user.email === adminEmail);
     const page = (title, body, status = 200) =>
-      htmlResponse(view.layout({ title, user, admin, flash: url.searchParams.get('m') }, body), status);
+      htmlResponse(view.layout({ title, user, admin, flash: url.searchParams.get('m'), path: url.pathname }, body), status);
     const fail = (status, msg) => (isApi ? jsonResponse({ error: msg }, status) : page(String(status), view.errorPage(status, msg), status));
 
     // Admin routes look like any unknown page to everyone else.
