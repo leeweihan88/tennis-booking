@@ -70,6 +70,10 @@ The D1 schema is already applied to the production database `csa-tennis`.
 
 From then on, every push to `main` deploys automatically.
 
+### Pull-request previews
+
+Each pull request branch builds a Preview: a separate public URL that Cloudflare's bot posts on the PR. Previews use the `csa-tennis-preview` D1 database (the `previews` block in `wrangler.jsonc`), so testing never touches real members' data. `ADMIN_EMAIL` isn't set for Previews, so there is no admin there unless you add it under **Settings → Variables & Secrets → Previews Base**.
+
 ### Schema changes
 
 The API token Workers Builds creates automatically can deploy the Worker but has no D1 permission. So schema changes are applied by hand before deploying the code that needs them:
@@ -77,6 +81,8 @@ The API token Workers Builds creates automatically can deploy the Worker but has
 ```bash
 npx wrangler d1 execute csa-tennis --remote --file=migrations/000N_name.sql
 ```
+
+Run the same command with `csa-tennis-preview` so Previews stay in step.
 
 ## Security
 

@@ -12,6 +12,16 @@
       "database_id": "6d25eb7e-3b41-49a1-b07f-17e10eb9db20"
     }
   ],
+  // Pull-request Previews (public URLs) use their own database, never production data.
+  "previews": {
+    "d1_databases": [
+      {
+        "binding": "DB",
+        "database_name": "csa-tennis-preview",
+        "database_id": "8bbfc9d0-3dcd-499b-87a8-4697cb2ff0fe"
+      }
+    ]
+  },
   // ADMIN_EMAIL is set in the dashboard (Settings > Variables & Secrets), not in git.
   "keep_vars": true,
   "observability": { "enabled": true }
