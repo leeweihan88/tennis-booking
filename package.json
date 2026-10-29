@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "db:local": "wrangler d1 execute csa-tennis --local --file=migrations/0001_init.sql",
+    "db:local": "wrangler d1 execute csa-tennis --local --file=migrations/0001_init.sql && wrangler d1 execute csa-tennis --local --file=migrations/0002_avatars.sql",
     "test": "node --test test/*.test.js"
   },
   "devDependencies": {

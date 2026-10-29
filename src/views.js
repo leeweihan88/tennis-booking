@@ -2,6 +2,7 @@
 import { html } from './http.js';
 import { formatDate, formatManila, MAX_GUESTS } from './schedule.js';
 import { QUESTIONS } from './rating.js';
+import { avatarPath, colourIndex, initials, MAX_UPLOAD_BYTES } from './avatar.js';
 
 // Flash messages are looked up by key so no user input is ever reflected.
 const MESSAGES = {
@@ -27,11 +28,31 @@ const MESSAGES = {
   session_restored: ['ok', 'Session restored.'],
   saved: ['ok', 'Saved.'],
   not_found: ['error', 'That item no longer exists.'],
+  photo_saved: ['ok', 'Profile picture updated.'],
+  photo_removed: ['ok', 'Profile picture removed; initials are shown instead.'],
+  photo_too_big: ['error', `That photo is over ${MAX_UPLOAD_BYTES / 1024 / 1024} MB. Please choose a smaller one.`],
+  bad_photo: ['error', 'That file is not a photo we can use. Try a JPEG, PNG or WebP.'],
+  photo_failed: ['error', 'Could not process that photo. Please try another one.'],
+  photo_limit: ['error', 'You have changed your photo 5 times today. Try again tomorrow.'],
+  photo_unavailable: ['error', 'Photo uploads are not available right now. Please tell the admin.'],
 };
 
 export const peso = (cents) => '₱' + (cents / 100).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtRating = (r) => r.toFixed(2);
 const ratingPill = (r) => html`<span class="rating" title="Skill rating, 0–7">${fmtRating(r)}</span>`;
+
+// Profile picture, or 2-letter initials on a colour picked from the name. Guests pass no id.
+// alt is empty because the name is always shown next to it.
+const AVATAR_PX = { sm: 28, lg: 96 };
+export const avatar = (name, id, version, size = 'sm') => {
+  const src = id && avatarPath(id, version);
+  const px = AVATAR_PX[size];
+  return src
+    ? html`<img class="avatar ${size}" src="${src}" alt="" width="${px}" height="${px}" loading="lazy" decoding="async">`
+    : html`<span class="avatar ${size} c${colourIndex(name)}" aria-hidden="true">${initials(name)}</span>`;
+};
+const person = (name, id, version, extra = '') =>
+  html`<span class="person">${avatar(name, id, version)}<span>${name}${extra}</span></span>`;
 
 // Destructive actions need a second click: the summary reveals the real button.
 const confirmAction = (label, action, fields, confirmLabel) => html`
@@ -52,7 +73,7 @@ export function layout({ title, user, admin, flash, path }, body) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${title} · CSA Tennis</title>
-<link rel="stylesheet" href="/app-v2.css">
+<link rel="stylesheet" href="/app-v3.css">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 </head>
 <body>
@@ -62,7 +83,7 @@ export function layout({ title, user, admin, flash, path }, body) {
     ${user ? html`
       ${link('/players', 'Players')}
       ${link('/matches', 'Matches')}
-      ${link('/account', 'Account')}
+      <a href="/account" class="me-link" ${path === '/account' ? html`aria-current="page"` : ''}>${avatar(user.name, user.id, user.avatar_v)}Account</a>
       ${admin ? link('/admin', 'Admin') : ''}
       <form method="post" action="/logout"><button class="link">Log out</button></form>`
     : html`${link('/login', 'Log in')}${link('/register', 'Join')}`}
@@ -85,8 +106,8 @@ const STATUS_TEXT = {
 
 function playerLabel(r) {
   return r.guest_name
-    ? html`${r.guest_name} <span class="muted">(guest of ${r.name})</span>`
-    : html`${r.name}${ratingPill(r.rating)}`;
+    ? person(r.guest_name, null, null, html` <span class="muted">(guest of ${r.name})</span>`)
+    : person(r.name, r.user_id, r.avatar_v, ratingPill(r.rating));
 }
 
 const payTag = (r) => html`<span class="tag ${r.paid ? 'paid' : 'unpaid'}">${r.paid ? 'Paid' : 'Unpaid'}</span>`;
@@ -113,7 +134,8 @@ export function homePage(d) {
     return html`
       <ul class="plain">${mine.map((r) => html`
         <li>
-          <span>${r.guest_name ? html`${r.guest_name} <span class="muted">(your guest)</span>` : html`<strong>You</strong>`}</span>
+          ${r.guest_name ? person(r.guest_name, null, null, html` <span class="muted">(your guest)</span>`)
+            : html`<span class="person">${avatar(r.name, r.user_id, r.avatar_v)}<strong>You</strong></span>`}
           <span class="actions">
             <span class="tag">${place(r)}</span>
             ${share && confirmed.includes(r) ? payTag(r) : ''}
@@ -205,7 +227,7 @@ export function playersPage(players) {
 <div class="card table-wrap"><table>
   <thead><tr><th>#</th><th>Name</th><th>Rating</th><th>Rated matches</th></tr></thead>
   <tbody>${players.map((p, i) => html`
-    <tr><td>${i + 1}</td><td>${p.name}</td><td>${fmtRating(p.rating)}</td><td>${p.rated_matches}</td></tr>`)}
+    <tr><td>${i + 1}</td><td>${person(p.name, p.id, p.avatar_v)}</td><td>${fmtRating(p.rating)}</td><td>${p.rated_matches}</td></tr>`)}
   </tbody>
 </table></div>
 <p class="muted">Ratings run from 0 to 7 and change only when an opponent confirms a match result.</p>`;
@@ -270,8 +292,20 @@ export function accountPage(user) {
 <h1>Account</h1>
 <section class="card">
   <h2>Profile</h2>
-  <p class="muted">${user.email}</p>
-  <form method="post" action="/account/name" class="row">
+  <div class="profile">
+    ${avatar(user.name, user.id, user.avatar_v, 'lg')}
+    <div>
+      <p><strong>${user.name}</strong><br><span class="muted">${user.email}</span></p>
+      ${user.avatar_v ? confirmAction('Remove photo', '/account/photo/remove', {}, 'Yes, use my initials') : ''}
+    </div>
+  </div>
+  <form method="post" action="/account/photo" enctype="multipart/form-data" class="row part">
+    <label>${user.avatar_v ? 'Change profile picture' : 'Add a profile picture'}
+      <input type="file" name="photo" accept="image/*" required></label>
+    <button>Upload</button>
+  </form>
+  <p class="muted">Any photo up to ${MAX_UPLOAD_BYTES / 1024 / 1024} MB. It is cropped to a square and only members who are logged in can see it. Without one, your initials are shown.</p>
+  <form method="post" action="/account/name" class="row part">
     <label>Name <input name="name" required maxlength="50" value="${user.name}" autocomplete="name"></label>
     <button>Save name</button>
   </form>
@@ -301,7 +335,7 @@ export function adminPage({ ev, event, confirmed, waitlist, share, users, tempPa
   const paidCount = confirmed.filter((r) => r.paid).length;
   const row = (r, waiting) => html`
     <tr>
-      <td>${r.guest_name ? html`${r.guest_name}<br><span class="muted">guest of ${r.name}</span>` : r.name}
+      <td>${r.guest_name ? person(r.guest_name, null, null, html`<br><span class="muted">guest of ${r.name}</span>`) : person(r.name, r.user_id, r.avatar_v)}
         ${waiting ? html`<br><span class="tag">Waitlist #${waitlist.indexOf(r) + 1}</span>` : ''}</td>
       <td>${waiting ? '' : html`<span class="actions">${payTag(r)}
         <form method="post" action="/admin/paid">
@@ -342,8 +376,9 @@ ${tempPassword ? html`<p class="flash ok" role="status">Temporary password for $
   <div class="table-wrap"><table>
     <thead><tr><th>Member</th><th>Rating</th><th></th></tr></thead>
     <tbody>${users.map((u) => html`
-      <tr><td>${u.name}<br><span class="muted email">${u.email}</span></td><td>${fmtRating(u.rating)}</td>
-        <td>${confirmAction('Reset password', '/admin/reset-password', { id: u.id }, 'Yes, reset')}</td></tr>`)}
+      <tr><td>${person(u.name, u.id, u.avatar_v, html`<br><span class="muted email">${u.email}</span>`)}</td><td>${fmtRating(u.rating)}</td>
+        <td><span class="actions">${confirmAction('Reset password', '/admin/reset-password', { id: u.id }, 'Yes, reset')}
+          ${u.avatar_v ? confirmAction('Remove photo', '/admin/remove-photo', { id: u.id }, 'Yes, remove photo') : ''}</span></td></tr>`)}
     </tbody>
   </table></div>
   <p class="muted">Resetting a password only replaces the password (ratings and history are kept) and logs that member out.</p>

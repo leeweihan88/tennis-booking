@@ -1,5 +1,6 @@
 // CSA Tennis: one Worker serving pages, a read-only JSON API and D1.
-import { htmlResponse, jsonResponse, redirect, safePath, sameOrigin, readForm } from './http.js';
+import { htmlResponse, imageResponse, jsonResponse, redirect, safePath, sameOrigin, readForm } from './http.js';
+import { avatarPath, MAX_UPLOAD_BYTES, resizePhoto, UPLOADS_PER_DAY } from './avatar.js';
 import { checkLogin, createSession, currentUser, destroySession, hashPassword, randomPassword, revokeAll, verifyPassword } from './auth.js';
 import { currentEvent, eventStatus, manilaDate, MAX_GUESTS, PLAYERS_PER_COURT } from './schedule.js';
 import { QUESTIONS, ratingDeltas, startingRating } from './rating.js';
@@ -41,8 +42,9 @@ async function loadEventView(db, now) {
   ]);
   const event = sel.results[0];
   const { results: regs } = await db.prepare(
-    `SELECT r.id, r.user_id, r.guest_name, r.paid, u.name, u.rating
+    `SELECT r.id, r.user_id, r.guest_name, r.paid, u.name, u.rating, a.updated_at AS avatar_v
      FROM registrations r JOIN users u ON u.id = r.user_id
+     LEFT JOIN avatars a ON a.user_id = r.user_id
      WHERE r.event_id = ? ORDER BY r.id`,
   ).bind(event.id).all();
   const cap = event.courts * PLAYERS_PER_COURT;
@@ -161,7 +163,8 @@ async function withdraw(c) {
 // ---------- pages: players & matches ----------
 
 const listPlayers = (db) =>
-  db.prepare('SELECT id, name, rating, rated_matches FROM users ORDER BY rating DESC, name').all();
+  db.prepare(`SELECT u.id, u.name, u.rating, u.rated_matches, a.updated_at AS avatar_v
+              FROM users u LEFT JOIN avatars a ON a.user_id = u.id ORDER BY u.rating DESC, u.name`).all();
 
 async function players(c) {
   const { results } = await listPlayers(c.db);
@@ -274,6 +277,38 @@ async function changeName(c) {
   return redirect('/account?m=name_changed');
 }
 
+// ---------- profile pictures ----------
+
+async function uploadPhoto(c) {
+  const { n } = await c.db.prepare('SELECT COUNT(*) AS n FROM photo_uploads WHERE user_id = ? AND at > ?')
+    .bind(c.user.id, c.now - DAY).first();
+  if (n >= UPLOADS_PER_DAY) return redirect('/account?m=photo_limit');
+  const { bytes, error } = await resizePhoto(c.env.IMAGES, c.form.get('photo'));
+  if (error) return redirect(`/account?m=${error}`);
+  await c.db.batch([
+    c.db.prepare(
+      `INSERT INTO avatars (user_id, image, updated_at) VALUES (?1, ?2, ?3)
+       ON CONFLICT (user_id) DO UPDATE SET image = excluded.image, updated_at = excluded.updated_at`,
+    ).bind(c.user.id, bytes, c.now),
+    c.db.prepare('INSERT INTO photo_uploads (user_id, at) VALUES (?, ?)').bind(c.user.id, c.now),
+    c.db.prepare('DELETE FROM photo_uploads WHERE at < ?').bind(c.now - DAY),
+  ]);
+  return redirect('/account?m=photo_saved');
+}
+
+async function removePhoto(c) {
+  await c.db.prepare('DELETE FROM avatars WHERE user_id = ?').bind(c.user.id).run();
+  return redirect('/account?m=photo_removed');
+}
+
+async function servePhoto(c) {
+  const id = int(c.url.searchParams, 'u', 1, Number.MAX_SAFE_INTEGER);
+  const row = id && await c.db.prepare('SELECT image, updated_at FROM avatars WHERE user_id = ?').bind(id).first();
+  if (!row) return jsonResponse({ error: 'No photo.' }, 404);
+  // D1 returns BLOBs as arrays of bytes. A URL with the current version can be cached for good.
+  return imageResponse(new Uint8Array(row.image), c.url.searchParams.get('v') === String(row.updated_at));
+}
+
 async function changePassword(c) {
   const current = c.form.get('current') || '';
   const pw = password(c.form, 'password');
@@ -292,7 +327,10 @@ async function changePassword(c) {
 
 async function adminPage(c, tempPassword) {
   const d = await loadEventView(c.db, c.now);
-  const { results: users } = await c.db.prepare('SELECT id, name, email, rating FROM users ORDER BY name').all();
+  const { results: users } = await c.db.prepare(
+    `SELECT u.id, u.name, u.email, u.rating, a.updated_at AS avatar_v
+     FROM users u LEFT JOIN avatars a ON a.user_id = u.id ORDER BY u.name`,
+  ).all();
   return c.page('Admin', view.adminPage({ ...d, users, tempPassword }));
 }
 
@@ -334,6 +372,13 @@ async function adminRemove(c) {
   return redirect('/admin?m=saved');
 }
 
+async function adminRemovePhoto(c) {
+  const id = int(c.form, 'id', 1, Number.MAX_SAFE_INTEGER);
+  if (!id) return redirect('/admin?m=bad_input');
+  await c.db.prepare('DELETE FROM avatars WHERE user_id = ?').bind(id).run();
+  return redirect('/admin?m=photo_removed');
+}
+
 async function adminResetPassword(c) {
   const id = int(c.form, 'id', 1, Number.MAX_SAFE_INTEGER);
   const user = id && await c.db.prepare('SELECT id, name FROM users WHERE id = ?').bind(id).first();
@@ -350,7 +395,10 @@ async function adminResetPassword(c) {
 // ---------- JSON API (read-only, for future mobile apps) ----------
 
 const iso = (ms) => new Date(ms).toISOString();
-const apiReg = (r) => ({ id: r.id, name: r.guest_name || r.name, guestOf: r.guest_name ? r.name : null });
+const apiReg = (r) => ({
+  id: r.id, name: r.guest_name || r.name, guestOf: r.guest_name ? r.name : null,
+  avatarUrl: r.guest_name ? null : avatarPath(r.user_id, r.avatar_v),
+});
 
 async function apiEvent(c) {
   const d = await loadEventView(c.db, c.now);
@@ -364,17 +412,24 @@ async function apiEvent(c) {
 
 async function apiPlayers(c) {
   const { results } = await listPlayers(c.db);
-  return jsonResponse(results.map((p) => ({ id: p.id, name: p.name, rating: p.rating, ratedMatches: p.rated_matches })));
+  return jsonResponse(results.map((p) => ({
+    id: p.id, name: p.name, rating: p.rating, ratedMatches: p.rated_matches, avatarUrl: avatarPath(p.id, p.avatar_v),
+  })));
 }
 
 function apiMe(c) {
   const u = c.user;
-  return jsonResponse({ id: u.id, name: u.name, email: u.email, rating: u.rating, ratedMatches: u.rated_matches, admin: c.admin });
+  return jsonResponse({
+    id: u.id, name: u.name, email: u.email, rating: u.rating, ratedMatches: u.rated_matches,
+    avatarUrl: avatarPath(u.id, u.avatar_v), admin: c.admin,
+  });
 }
 
 // ---------- routing ----------
 
 const PUBLIC = 0, USER = 1, ADMIN = 2;
+// Room for the multipart envelope around a maximum-size photo.
+const UPLOAD = MAX_UPLOAD_BYTES + 64 * 1024;
 
 const ROUTES = {
   'GET /': [home, PUBLIC],
@@ -394,12 +449,16 @@ const ROUTES = {
   'GET /account': [accountPage, USER],
   'POST /account/name': [changeName, USER],
   'POST /account/password': [changePassword, USER],
+  'POST /account/photo': [uploadPhoto, USER, UPLOAD],
+  'POST /account/photo/remove': [removePhoto, USER],
+  'GET /avatar': [servePhoto, USER],
   'GET /admin': [(c) => adminPage(c), ADMIN],
   'POST /admin/event': [adminEvent, ADMIN],
   'POST /admin/cancel': [adminCancel, ADMIN],
   'POST /admin/paid': [adminPaid, ADMIN],
   'POST /admin/remove': [adminRemove, ADMIN],
   'POST /admin/reset-password': [adminResetPassword, ADMIN],
+  'POST /admin/remove-photo': [adminRemovePhoto, ADMIN],
   'GET /api/event': [apiEvent, USER],
   'GET /api/players': [apiPlayers, USER],
   'GET /api/me': [apiMe, USER],
@@ -423,7 +482,7 @@ export default {
 
     // Admin routes look like any unknown page to everyone else.
     if (!route || (route[1] === ADMIN && !admin && user)) return fail(404, 'Page not found.');
-    const [handler, access] = route;
+    const [handler, access, maxUpload = 0] = route;
     if (access !== PUBLIC && !user) {
       return isApi ? fail(401, 'Log in first.') : redirect(`/login?next=${encodeURIComponent(url.pathname)}`);
     }
@@ -431,8 +490,9 @@ export default {
     let form = null;
     if (method === 'POST') {
       if (!sameOrigin(request)) return fail(403, 'Request blocked.');
-      form = await readForm(request);
-      if (!form) return fail(400, 'Bad request.');
+      form = await readForm(request, maxUpload);
+      // An upload is only refused here when it is too large (or not a form at all).
+      if (!form) return maxUpload ? redirect('/account?m=photo_too_big') : fail(400, 'Bad request.');
     }
 
     try {

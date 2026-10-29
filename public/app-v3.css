@@ -1,4 +1,4 @@
-/* CSA Tennis. Renaming this file (app-v3.css) is the cache-bust: it is cached for a year. */
+/* CSA Tennis. Renaming this file (app-v4.css) is the cache-bust: it is cached for a year. */
 :root {
   --bg: #f6f7f4; --card: #fff; --text: #1d2420; --muted: #5f6b64; --line: #dde2dc;
   --control: #7d8a83; /* ≥3:1 against bg and card, for input and radio outlines */
@@ -111,3 +111,18 @@ code { background: var(--bg); padding: 2px 6px; border-radius: 4px; }
   nav { column-gap: 14px; }
   nav form { padding-left: 14px; }
 }
+
+/* Profile pictures and initials */
+.person { display: inline-flex; align-items: center; gap: 8px; vertical-align: middle; }
+.avatar { display: inline-flex; align-items: center; justify-content: center; flex: none; border-radius: 50%;
+  object-fit: cover; background: var(--line); color: #fff; font-weight: 700; letter-spacing: .02em; overflow: hidden; }
+.avatar.sm { width: 28px; height: 28px; font-size: .72rem; }
+.avatar.lg { width: 96px; height: 96px; font-size: 2rem; }
+/* White text on each colour is at least 6.3:1 (WCAG AA). */
+.avatar.c0 { background: #2f6b3a; } .avatar.c1 { background: #1f5f8b; } .avatar.c2 { background: #8a3b12; }
+.avatar.c3 { background: #6b3fa0; } .avatar.c4 { background: #9c2f5e; } .avatar.c5 { background: #00676b; }
+.avatar.c6 { background: #6e5200; } .avatar.c7 { background: #3d4f8f; }
+.profile { display: flex; gap: 16px; align-items: center; }
+.profile p { margin: 0 0 8px; }
+nav a.me-link { display: inline-flex; align-items: center; gap: 6px; }
+input[type=file] { padding: 8px; }
