@@ -68,7 +68,8 @@ export async function currentUser(db, request, now) {
   const token = readToken(request);
   if (!token) return null;
   return db.prepare(
-    `SELECT u.* FROM auth_sessions s JOIN users u ON u.id = s.user_id
+    `SELECT u.*, a.updated_at AS avatar_v FROM auth_sessions s JOIN users u ON u.id = s.user_id
+     LEFT JOIN avatars a ON a.user_id = u.id
      WHERE s.token_hash = ? AND s.expires_at > ?`,
   ).bind(await sha256(token), now).first();
 }

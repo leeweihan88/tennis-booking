@@ -12,8 +12,11 @@
       "database_id": "6d25eb7e-3b41-49a1-b07f-17e10eb9db20"
     }
   ],
+  // Cloudflare Images: resizes uploaded profile pictures.
+  "images": { "binding": "IMAGES" },
   // Pull-request Previews (public URLs) use their own database, never production data.
   "previews": {
+    "images": { "binding": "IMAGES" },
     "d1_databases": [
       {
         "binding": "DB",

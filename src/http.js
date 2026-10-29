@@ -66,10 +66,33 @@ export function sameOrigin(request) {
 
 const MAX_FORM_BYTES = 16 * 1024;
 
-export async function readForm(request) {
+// Plain forms everywhere; multipart (file upload) only where the route allows it,
+// capped by the declared Content-Length before the body is read.
+export async function readForm(request, maxUploadBytes = 0) {
   const type = request.headers.get('Content-Type') || '';
-  if (!type.startsWith('application/x-www-form-urlencoded')) return null;
-  const text = await request.text();
-  if (text.length > MAX_FORM_BYTES) return null;
-  return new URLSearchParams(text);
+  if (type.startsWith('application/x-www-form-urlencoded')) {
+    const text = await request.text();
+    return text.length > MAX_FORM_BYTES ? null : new URLSearchParams(text);
+  }
+  if (maxUploadBytes && type.startsWith('multipart/form-data')) {
+    const length = Number(request.headers.get('Content-Length'));
+    if (!length || length > maxUploadBytes) return null;
+    try {
+      return await request.formData();
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+// A member's profile picture: private (login required), cached by its versioned URL.
+export function imageResponse(bytes, immutable) {
+  return new Response(bytes, {
+    headers: {
+      ...SECURITY_HEADERS,
+      'Content-Type': 'image/webp',
+      'Cache-Control': immutable ? 'private, max-age=31536000, immutable' : 'private, no-cache',
+    },
+  });
 }
