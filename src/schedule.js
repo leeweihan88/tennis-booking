@@ -51,6 +51,11 @@ export function formatManila(ms) {
   return `${days[d.getUTCDay()]} ${d.getUTCDate()} ${months[d.getUTCMonth()]} ${d.getUTCFullYear()}, ${h % 12 || 12}:${m} ${h < 12 ? 'AM' : 'PM'}`;
 }
 
+// 'YYYY-MM-DD' → "Mon 2 Nov 2026" (day first, matching formatManila).
+export function formatDate(date) {
+  return formatManila(Date.parse(date + 'T00:00:00Z') - OFFSET).split(',')[0];
+}
+
 // Today's date in Manila as 'YYYY-MM-DD'.
 export function manilaDate(nowMs) {
   return new Date(nowMs + OFFSET).toISOString().slice(0, 10);

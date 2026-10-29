@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { currentEvent, eventStatus, formatManila } from '../src/schedule.js';
+import { currentEvent, eventStatus, formatDate, formatManila } from '../src/schedule.js';
 
 // Manila wall-clock time → UTC ms.
 const manila = (s) => Date.parse(s + '+08:00');
@@ -44,4 +44,9 @@ test('formatManila', () => {
   assert.equal(formatManila(manila('2026-11-02T19:30:00')), 'Mon 2 Nov 2026, 7:30 PM');
   assert.equal(formatManila(manila('2026-10-28T10:00:00')), 'Wed 28 Oct 2026, 10:00 AM');
   assert.equal(formatManila(manila('2026-11-02T12:00:00')), 'Mon 2 Nov 2026, 12:00 PM');
+});
+
+test('formatDate is day-first', () => {
+  assert.equal(formatDate('2026-11-02'), 'Mon 2 Nov 2026');
+  assert.equal(formatDate('2026-12-31'), 'Thu 31 Dec 2026');
 });
