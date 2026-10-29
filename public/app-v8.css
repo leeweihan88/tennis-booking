@@ -1,4 +1,4 @@
-/* CSA Tennis. Renaming this file (app-v8.css) is the cache-bust: it is cached for a year. */
+/* CSA Tennis. Renaming this file (app-v9.css) is the cache-bust: it is cached for a year. */
 :root {
   --bg: #f6f7f4; --card: #fff; --text: #1d2420; --muted: #5f6b64; --line: #dde2dc;
   --control: #7d8a83; /* ≥3:1 against bg and card, for input and radio outlines */
@@ -56,6 +56,13 @@ input, select { display: block; width: 100%; margin-top: 4px; padding: 10px; fon
 input:focus-visible, select:focus-visible, button:focus-visible, summary:focus-visible, .choice input:focus-visible + span {
   outline: 3px solid var(--brand); outline-offset: 2px; }
 ::placeholder { color: var(--muted); opacity: 1; }
+/* iOS Safari gives date/time inputs an intrinsic minimum width and its own look, so they ignore
+   width: 100% and spill out of cards (and under neighbouring buttons). Normalise them like other fields;
+   the native pickers still open on tap. */
+input[type=date], input[type=time] { -webkit-appearance: none; appearance: none; min-width: 0; max-width: 100%;
+  min-height: 46px; line-height: 1.5; text-align: left; }
+input::-webkit-date-and-time-value { text-align: left; margin: 0; }
+input::-webkit-datetime-edit { padding: 0; }
 label.check { display: flex; gap: 10px; align-items: center; font-weight: 400; }
 input[type=radio], input[type=checkbox] { width: 20px; height: 20px; margin: 0; accent-color: var(--brand); }
 fieldset { border: 0; padding: 0; margin: 0 0 12px; }
@@ -79,7 +86,7 @@ button.danger { background: var(--danger); color: var(--card); padding: 6px 12px
 button.link { background: none; color: var(--text); padding: 0; font-weight: 400; }
 form.inline { display: inline-block; margin: 0 0 0 8px; }
 form.row { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
-form.row label { flex: 1 1 160px; margin: 0; }
+form.row label { flex: 1 1 160px; min-width: 0; margin: 0; }
 .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 
 /* Two-step confirmation for destructive actions */
@@ -207,4 +214,11 @@ a.name:hover, a.name:focus-visible { text-decoration: underline; }
 
 /* Admin schedule form */
 .row-fields { display: flex; flex-wrap: wrap; gap: 12px; }
-.row-fields label { flex: 1 1 140px; }
+.row-fields label { flex: 1 1 140px; min-width: 0; }
+
+/* Narrow phones: stack table action buttons so rows never get wider than the card. */
+@media (max-width: 420px) {
+  td .actions { flex-direction: column; align-items: flex-end; gap: 6px; }
+  td summary, td button { white-space: normal; text-align: center; }
+  th, td { padding: 8px 4px; }
+}
