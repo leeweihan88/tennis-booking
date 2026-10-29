@@ -84,7 +84,7 @@ export function layout({ title, user, admin, flash, path, script }, body) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${title} · CSA Tennis</title>
-<link rel="stylesheet" href="/app-v7.css">
+<link rel="stylesheet" href="/app-v8.css">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
@@ -492,13 +492,17 @@ ${tempPassword ? html`<p class="flash ok" role="status">Temporary password for $
   <h2>This session · ${formatDate(event.date)}</h2>
   <p class="muted">${formatTime(event.start_min)}–${formatTime(event.end_min)}. Registration ${formatManila(ev.opensAt)} → ${formatManila(ev.closesAt)}.</p>
   ${event.cancelled ? html`<p class="status cancelled">This session is cancelled.</p>` : ''}
-  <form method="post" action="/admin/event" class="row">
+  <form method="post" action="/admin/event">
     <input type="hidden" name="date" value="${event.date}">
-    <label>Courts <input type="number" name="courts" min="1" max="6" required value="${event.courts}"></label>
-    <label>Total court cost (₱) <input type="number" name="cost" min="0" max="1000000" step="0.01" value="${event.cost_cents == null ? '' : (event.cost_cents / 100).toFixed(2)}"></label>
-    <label>Starts <input type="time" name="start" required value="${timeValue(event.start_min)}"></label>
-    <label>Ends <input type="time" name="end" required value="${timeValue(event.end_min)}"></label>
-    <button>Save</button>
+    <div class="row-fields">
+      <label>Courts <input type="number" name="courts" min="1" max="6" required value="${event.courts}"></label>
+      <label>Total court cost (₱) <input type="number" name="cost" min="0" max="1000000" step="0.01" value="${event.cost_cents == null ? '' : (event.cost_cents / 100).toFixed(2)}"></label>
+    </div>
+    <div class="row-fields">
+      <label>Starts <input type="time" name="start" required value="${timeValue(event.start_min)}"></label>
+      <label>Ends <input type="time" name="end" required value="${timeValue(event.end_min)}"></label>
+    </div>
+    <button>Save this session</button>
   </form>
   <p class="muted">Times here change this session only, e.g. for a holiday. The weekly schedule is below.</p>
   ${share ? html`<p>${peso(share)} per confirmed player · <strong>${paidCount} of ${confirmed.length} paid</strong>.</p>`
