@@ -75,7 +75,7 @@ export function layout({ title, user, admin, flash, path, script }, body) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${title} · CSA Tennis</title>
-<link rel="stylesheet" href="/app-v5.css">
+<link rel="stylesheet" href="/app-v6.css">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 ${script ? html`<script type="module" src="${script}"></script>` : ''}
 </head>
@@ -86,6 +86,7 @@ ${script ? html`<script type="module" src="${script}"></script>` : ''}
     ${user ? html`
       ${link('/players', 'Players')}
       ${link('/matches', 'Matches')}
+      ${link('/history', 'History')}
       <a href="/account" class="me-link" ${path === '/account' ? html`aria-current="page"` : ''}>${avatar(user.name, user.id, user.avatar_v)}Account</a>
       ${admin ? link('/admin', 'Admin') : ''}
       <form method="post" action="/logout"><button class="link">Log out</button></form>`
@@ -222,6 +223,49 @@ export function registerPage() {
     <button>Create account</button>
   </form>
 </section>`;
+}
+
+// Signed rating change with a real minus sign, e.g. "+0.15" / "−0.15".
+const fmtDelta = (d) => (d >= 0 ? '+' : '−') + Math.abs(d).toFixed(2);
+
+function historyMatch(m, people, deltaOf) {
+  const nameOf = (id) => (people[id] ? people[id].name : 'Former member');
+  const side = (ids) => ids.filter(Boolean).map((id, i) => {
+    const d = deltaOf[`${m.id}:${id}`];
+    return html`${i ? ' & ' : ''}${nameOf(id)}${d === undefined ? '' : html` <span class="delta ${d >= 0 ? 'up' : 'down'}">${fmtDelta(d)}</span>`}`;
+  });
+  const [win, lose] = m.winner === 1 ? [[m.p1, m.p2], [m.p3, m.p4]] : [[m.p3, m.p4], [m.p1, m.p2]];
+  return html`<span class="muted">${formatDate(m.played_on)}</span> <strong>${side(win)}</strong> beat ${side(lose)}${m.score ? ` (${m.score})` : ''}`;
+}
+
+export function historyPage({ weeks, people, deltaOf, page, hasOlder, admin }) {
+  const pager = page > 1 || hasOlder ? html`
+<nav class="pager" aria-label="History pages">
+  ${page > 1 ? html`<a href="/history${page > 2 ? `?page=${page - 1}` : ''}">← Newer</a>` : html`<span></span>`}
+  ${hasOlder ? html`<a href="/history?page=${page + 1}">Older →</a>` : ''}
+</nav>` : '';
+  return html`
+<h1>History</h1>
+<p class="muted">Past Monday sessions, newest first, with the confirmed matches played that week (Monday to Sunday) and each player's rating change.</p>
+${weeks.length ? '' : html`<section class="card"><p class="muted">No past sessions yet. History starts after the first Monday session.</p></section>`}
+${weeks.map(({ monday, event, played, waitlisted, matches }) => html`
+<section class="card">
+  <h2>${formatDate(monday)}</h2>
+  <p class="muted">${!event ? 'No session recorded this week.'
+    : event.cancelled ? html`<span class="tag rejected">Cancelled</span>`
+    : html`${event.courts} courts · ${played.length} played${waitlisted ? ` · ${waitlisted} on waitlist` : ''}`}</p>
+  ${played.length ? html`
+  <ul class="plain">${played.map((r) => html`
+    <li>${r.guest_name ? person(r.guest_name, null, null, html` <span class="muted">(guest of ${r.name})</span>`) : person(r.name, r.user_id, r.avatar_v)}
+      ${admin && event.cost_cents ? payTag(r) : ''}</li>`)}
+  </ul>` : ''}
+  <div class="part">
+    <h3>Matches that week${matches.length ? ` (${matches.length})` : ''}</h3>
+    ${matches.length ? html`<ul class="plain">${matches.map((m) => html`<li><span>${historyMatch(m, people, deltaOf)}</span></li>`)}</ul>`
+      : html`<p class="muted">No confirmed matches.</p>`}
+  </div>
+</section>`)}
+${pager}`;
 }
 
 export function playersPage(players) {

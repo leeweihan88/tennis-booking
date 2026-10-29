@@ -185,6 +185,63 @@ async function matchesPage(c) {
   }));
 }
 
+// ---------- history ----------
+
+const HISTORY_PAGE = 10;
+// The Monday on or before a 'YYYY-MM-DD' date, in SQL. Matches belong to the week (Mon–Sun) they were played.
+const MONDAY_OF = "date(played_on, '-6 days', 'weekday 1')";
+
+async function history(c) {
+  const page = int(c.url.searchParams, 'page', 1, 10_000) || 1;
+  const current = currentEvent(c.now).date;
+  // Past weeks: every earlier session, plus any week that only has confirmed matches.
+  const { results: weeks } = await c.db.prepare(
+    `SELECT date AS monday FROM events WHERE date < ?1
+     UNION SELECT ${MONDAY_OF} FROM matches WHERE status = 'confirmed' AND ${MONDAY_OF} < ?1
+     ORDER BY monday DESC LIMIT ?2 OFFSET ?3`,
+  ).bind(current, HISTORY_PAGE + 1, (page - 1) * HISTORY_PAGE).all();
+  const hasOlder = weeks.length > HISTORY_PAGE;
+  const mondays = weeks.slice(0, HISTORY_PAGE).map((w) => w.monday);
+  if (!mondays.length) return c.page('History', view.historyPage({ weeks: [], page, hasOlder: false, admin: c.admin }));
+
+  const list = mondays.map(() => '?').join(',');
+  const [events, regs, matches, deltas, users] = await c.db.batch([
+    c.db.prepare(`SELECT * FROM events WHERE date IN (${list})`).bind(...mondays),
+    c.db.prepare(
+      `SELECT r.id, r.event_id, r.user_id, r.guest_name, r.paid, u.name, u.rating, a.updated_at AS avatar_v
+       FROM registrations r JOIN events e ON e.id = r.event_id JOIN users u ON u.id = r.user_id
+       LEFT JOIN avatars a ON a.user_id = r.user_id
+       WHERE e.date IN (${list}) ORDER BY r.id`,
+    ).bind(...mondays),
+    c.db.prepare(
+      `SELECT *, ${MONDAY_OF} AS monday FROM matches
+       WHERE status = 'confirmed' AND ${MONDAY_OF} IN (${list}) ORDER BY played_on DESC, id DESC`,
+    ).bind(...mondays),
+    c.db.prepare(
+      `SELECT match_id, user_id, delta FROM rating_history
+       WHERE match_id IN (SELECT id FROM matches WHERE status = 'confirmed' AND ${MONDAY_OF} IN (${list}))`,
+    ).bind(...mondays),
+    c.db.prepare('SELECT u.id, u.name, a.updated_at AS avatar_v FROM users u LEFT JOIN avatars a ON a.user_id = u.id'),
+  ]);
+
+  const byDate = Object.fromEntries(events.results.map((e) => [e.date, e]));
+  const people = Object.fromEntries(users.results.map((u) => [u.id, u]));
+  const deltaOf = {};
+  for (const d of deltas.results) deltaOf[`${d.match_id}:${d.user_id}`] = d.delta;
+  const data = mondays.map((monday) => {
+    const event = byDate[monday] || null;
+    const rows = event ? regs.results.filter((r) => r.event_id === event.id) : [];
+    const cap = event ? event.courts * PLAYERS_PER_COURT : 0;
+    return {
+      monday, event,
+      played: rows.slice(0, cap),
+      waitlisted: Math.max(0, rows.length - cap),
+      matches: matches.results.filter((m) => m.monday === monday),
+    };
+  });
+  return c.page('History', view.historyPage({ weeks: data, people, deltaOf, page, hasOlder, admin: c.admin }));
+}
+
 async function recordMatch(c) {
   const bad = () => redirect('/matches?m=bad_input');
   const max = Number.MAX_SAFE_INTEGER;
@@ -443,6 +500,7 @@ const ROUTES = {
   'POST /withdraw': [withdraw, USER],
   'GET /players': [players, USER],
   'GET /matches': [matchesPage, USER],
+  'GET /history': [history, USER],
   'POST /matches': [recordMatch, USER],
   'POST /matches/confirm': [confirmMatch, USER],
   'POST /matches/reject': [rejectMatch, USER],

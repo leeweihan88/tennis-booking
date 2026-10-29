@@ -8,6 +8,7 @@ Weekly tennis registration for the Monday session, plus player ratings.
 - **Guests:** members can bring up to 3 friends without accounts. Each guest takes their own spot in sign-up order. Withdrawing yourself also withdraws your guests.
 - **Court cost:** the admin enters the total cost in PHP. Each confirmed spot owes an equal share, and the admin ticks off who has paid. No money is handled online.
 - **Ratings (0–7):** a 4-question sign-up questionnaire sets the starting rating (1.0–4.0). Players record singles or doubles results, and ratings change (Elo-style) once an opponent confirms.
+- **History:** a tab listing past Monday sessions, newest first, 10 per page. Each card shows who had a spot (Paid/Unpaid for the admin only; the waitlist as a count) and the confirmed matches played that week (Monday to Sunday) with each player's rating change.
 - **Accounts:** email + password. There is no email sending, so the admin resets forgotten passwords from `/admin`.
 - **Profile pictures:** members upload any photo up to 20 MB on `/account`, from the phone gallery or camera. Cloudflare Images crops it to a 256×256 WebP (about 20 KB), which is stored in D1; the original is never kept. Photos are visible only to logged-in members. Without a photo, 2-letter initials are shown (Wesley Lee → WL, Maria → MA) on a colour picked from the name. Guests always show initials. The admin can remove any photo, and each member can upload at most 5 photos a day.
 
@@ -114,7 +115,7 @@ Search engines are asked not to index the site (`public/robots.txt`), because pa
 
 - No client JavaScript except the ~3 KB photo cropper on `/account` (no libraries). Each page is one HTML response plus one ~2.5 KB (compressed) stylesheet. Other interactive bits use plain HTML and CSS: two-step `<details>` confirmations and a CSS `:has()` singles/doubles toggle (older browsers just show all fields). If the cropper doesn't run, the photo upload still works without it (centre crop on the server).
 - The cropper sends a 512×512 JPEG (~100 KB) instead of the original multi-MB photo, so uploads are fast on mobile data.
-- `app-v5.css` and `crop-v1.js` are cached for a year (`immutable`). To change either, rename it to the next version and update the reference in `src/views.js`.
+- `app-v6.css` and `crop-v1.js` are cached for a year (`immutable`). To change either, rename it to the next version and update the reference in `src/views.js`.
 - Brotli/gzip compression is automatic at Cloudflare's edge. Cloudflare's Auto Minify feature has been retired, and the files are already small.
 - HTML and the API are `no-store`, so the list of who's in is always live.
 - Each page makes one to three D1 queries, using indexes on `registrations(event_id, id)` and `matches(status, id)`.
@@ -125,7 +126,7 @@ After the first deploy, with `URL=https://csa-tennis.<your-subdomain>.workers.de
 
 - [ ] **SSL:** `curl -sI $URL` shows `HTTP/2 200` and `strict-transport-security`.
 - [ ] **Headers:** the same response has `content-security-policy`, `x-frame-options: DENY` and `x-content-type-options: nosniff`.
-- [ ] **Caching:** `curl -sI $URL/app-v5.css` twice; the second shows `cf-cache-status: HIT` and `cache-control: public, max-age=31536000, immutable`.
+- [ ] **Caching:** `curl -sI $URL/app-v6.css` twice; the second shows `cf-cache-status: HIT` and `cache-control: public, max-age=31536000, immutable`.
 - [ ] **Open redirect:** log in via `$URL/login?next=//example.com`; you land on `/`.
 - [ ] **Admin:** registering with `ADMIN_EMAIL` shows the Admin link. Another account gets 404 on `/admin`.
 - [ ] **Flow:** register → sign up → add a guest → withdraw → the waitlist moves up.
