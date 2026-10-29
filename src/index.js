@@ -1,5 +1,5 @@
 // CSA Tennis: one Worker serving pages, a read-only JSON API and D1.
-import { htmlResponse, imageResponse, jsonResponse, redirect, safePath, sameOrigin, readForm } from './http.js';
+import { CSP_WITH_SCRIPT, htmlResponse, imageResponse, jsonResponse, redirect, safePath, sameOrigin, readForm } from './http.js';
 import { avatarPath, MAX_UPLOAD_BYTES, resizePhoto, UPLOADS_PER_DAY } from './avatar.js';
 import { checkLogin, createSession, currentUser, destroySession, hashPassword, randomPassword, revokeAll, verifyPassword } from './auth.js';
 import { currentEvent, eventStatus, manilaDate, MAX_GUESTS, PLAYERS_PER_COURT } from './schedule.js';
@@ -267,7 +267,7 @@ async function rejectMatch(c) {
 // ---------- pages: account ----------
 
 function accountPage(c) {
-  return c.page('Account', view.accountPage(c.user));
+  return c.page('Account', view.accountPage(c.user), 200, view.CROP_SCRIPT);
 }
 
 async function changeName(c) {
@@ -476,8 +476,10 @@ export default {
     const user = await currentUser(db, request, now);
     const adminEmail = (env.ADMIN_EMAIL || '').trim().toLowerCase();
     const admin = Boolean(user && adminEmail && user.email === adminEmail);
-    const page = (title, body, status = 200) =>
-      htmlResponse(view.layout({ title, user, admin, flash: url.searchParams.get('m'), path: url.pathname }, body), status);
+    // A page that names a script gets the one CSP that allows our own scripts.
+    const page = (title, body, status = 200, script = null) =>
+      htmlResponse(view.layout({ title, user, admin, flash: url.searchParams.get('m'), path: url.pathname, script }, body), status,
+        script ? { 'Content-Security-Policy': CSP_WITH_SCRIPT } : undefined);
     const fail = (status, msg) => (isApi ? jsonResponse({ error: msg }, status) : page(String(status), view.errorPage(status, msg), status));
 
     // Admin routes look like any unknown page to everyone else.

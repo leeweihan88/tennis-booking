@@ -17,7 +17,7 @@ Weekly tennis registration for the Monday session, plus player ratings.
 Browser ──► Cloudflare edge (TLS, DDoS protection, CDN)
               └─► Worker "csa-tennis" (src/index.js, no runtime dependencies)
                     ├─ static assets: public/ (CSS, icon), cached at the edge
-                    ├─ server-rendered HTML pages, no client JavaScript
+                    ├─ server-rendered HTML pages; JavaScript only for the photo cropper
                     ├─ read-only JSON API: /api/event, /api/players, /api/me
                     ├─ Cloudflare Images binding: resizes uploaded profile pictures
                     └─ D1 database "csa-tennis" (SQLite, incl. profile pictures)
@@ -33,6 +33,7 @@ Browser ──► Cloudflare edge (TLS, DDoS protection, CDN)
 | `src/avatar.js` | Initials, avatar colours, photo resizing |
 | `src/http.js` | Escaping, security headers, origin check, safe redirects |
 | `public/` | Static assets; `_headers` sets their security and cache headers |
+| `public/crop-v1.js` | Photo cropper (Account page only): move and scale inside a circle, uploads a 512×512 JPEG |
 | `migrations/` | Database schema, one idempotent file per change, applied in order |
 | `test/` | Unit tests (`npm test`, Node's built-in test runner) |
 
@@ -91,7 +92,7 @@ Run the same command with `csa-tennis-preview` so Previews stay in step.
 
 | Control | Where |
 |---|---|
-| CSP `default-src 'none'`, no inline code, no third-party scripts | `src/http.js` |
+| CSP `default-src 'none'`, no inline code, no third-party scripts. Only `/account` allows a script: `script-src 'self'` (our own `crop-v1.js`) and `img-src blob:` to preview the chosen photo | `src/http.js` |
 | HSTS, X-Frame-Options DENY, nosniff, Referrer-Policy, Permissions-Policy | `src/http.js` (pages), `public/_headers` (assets) |
 | Cross-site request forgery: POSTs must carry this site's `Origin` header; cookies are `SameSite=Lax` | `src/http.js`, `src/auth.js` |
 | Open redirect: `?next=` only accepts local paths (`/x`, not `//x` or `/\x`) | `safePath` in `src/http.js` |
@@ -111,8 +112,9 @@ Search engines are asked not to index the site (`public/robots.txt`), because pa
 
 ## Performance
 
-- No client JavaScript. Each page is one HTML response plus one ~2 KB (compressed) stylesheet. Interactive bits use plain HTML and CSS: two-step `<details>` confirmations and a CSS `:has()` singles/doubles toggle (older browsers just show all fields).
-- `app-v4.css` is cached for a year (`immutable`). To change styles, rename it to `app-v5.css` and update the link in `src/views.js`.
+- No client JavaScript except the ~3 KB photo cropper on `/account` (no libraries). Each page is one HTML response plus one ~2.5 KB (compressed) stylesheet. Other interactive bits use plain HTML and CSS: two-step `<details>` confirmations and a CSS `:has()` singles/doubles toggle (older browsers just show all fields). If the cropper doesn't run, the photo upload still works without it (centre crop on the server).
+- The cropper sends a 512×512 JPEG (~100 KB) instead of the original multi-MB photo, so uploads are fast on mobile data.
+- `app-v5.css` and `crop-v1.js` are cached for a year (`immutable`). To change either, rename it to the next version and update the reference in `src/views.js`.
 - Brotli/gzip compression is automatic at Cloudflare's edge. Cloudflare's Auto Minify feature has been retired, and the files are already small.
 - HTML and the API are `no-store`, so the list of who's in is always live.
 - Each page makes one to three D1 queries, using indexes on `registrations(event_id, id)` and `matches(status, id)`.
@@ -123,7 +125,7 @@ After the first deploy, with `URL=https://csa-tennis.<your-subdomain>.workers.de
 
 - [ ] **SSL:** `curl -sI $URL` shows `HTTP/2 200` and `strict-transport-security`.
 - [ ] **Headers:** the same response has `content-security-policy`, `x-frame-options: DENY` and `x-content-type-options: nosniff`.
-- [ ] **Caching:** `curl -sI $URL/app-v4.css` twice; the second shows `cf-cache-status: HIT` and `cache-control: public, max-age=31536000, immutable`.
+- [ ] **Caching:** `curl -sI $URL/app-v5.css` twice; the second shows `cf-cache-status: HIT` and `cache-control: public, max-age=31536000, immutable`.
 - [ ] **Open redirect:** log in via `$URL/login?next=//example.com`; you land on `/`.
 - [ ] **Admin:** registering with `ADMIN_EMAIL` shows the Admin link. Another account gets 404 on `/admin`.
 - [ ] **Flow:** register → sign up → add a guest → withdraw → the waitlist moves up.
